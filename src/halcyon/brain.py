@@ -255,10 +255,10 @@ class ClaudeTask:
         system = TASK_SYSTEM.format(user=self.config.get("server_user"), host=self.config.get("server_host"),
                                     actions=folder)
         cmd = [exe, "-p", "--model", self.config.get("task_model"), "--output-format", "stream-json", "--verbose",
-               "--allowedTools", ",".join(allowed), "--append-system-prompt", system, "--add-dir", folder]
+               "--allowedTools", ",".join(allowed), "--add-dir", folder]
         if resume:
             cmd += ["--resume", resume]
-        text = prompt
+        text = prompt if resume else "%s\n\n---\n\n%s" % (system, prompt)
         if image:
             text += "\n\nThe user's screen right now is in the image file %s. Read it first." % image
             cmd += ["--add-dir", os.path.dirname(image)]
