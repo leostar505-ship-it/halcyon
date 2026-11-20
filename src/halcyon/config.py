@@ -4,7 +4,7 @@ import pathlib
 import sys
 
 DEFAULTS = {
-    "wake_words": ["halcyon", "halsion", "halcion", "hal see on", "hal sion", "halsyon"],
+    "wake_words": ["halcyon", "halsion", "halcion", "halsyon", "halcyan", "halsian", "halsean", "halseon", "halsee on", "halsy on", "halsi on", "halsey on", "halsie on", "halsea on", "halzion", "halzian", "halcian", "halcean", "halcyone", "halsyun", "hal see on", "hal sea on", "hal si on", "hal sy on", "hal sigh on", "hal sion", "hal sian", "hal zion", "hal cion", "hal cyan", "hal seon", "hal sean", "hal seen", "hal see an", "hal see in", "hal sea an", "hal c on", "hal c in", "hal cee on", "hal sie on", "hal sy an", "hal sigh an", "how see on", "how sion", "hell see on", "hello see on", "hallo see on", "hall see on", "hall sion", "hull see on", "hal sy", "hals ion", "hals eon", "hal's ion", "hal's see on", "halls ion", "hal siren", "hal syrin", "hal saion", "hal xion", "hal shun", "hal sun", "hal sin", "hal sinn", "hallcyon", "hallcion", "hallsion", "hallsyon", "hallseon", "halcyon's"],
     "wake_model": "small.en",
     "command_model": "small.en",
     "use_gpu": True,

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import pathlib
 import socket
 import subprocess
 import sys
@@ -41,14 +42,29 @@ def models_dir():
     return config_dir() / "models" / "whisper"
 
 
+def _valid(path, name):
+    return path.is_file() and path.stat().st_size >= MODELS[name][1] * 1024 * 1024 * 0.9
+
+
+def _shared_dir():
+    base = os.environ.get("APPDATA")
+    if not base:
+        return None
+    return pathlib.Path(base) / "DisplayCompanion" / "models" / "whisper"
+
+
 def model_path(name):
-    return models_dir() / MODELS[name][0]
+    own = models_dir() / MODELS[name][0]
+    shared = _shared_dir()
+    if not _valid(own, name) and shared is not None:
+        other = shared / MODELS[name][0]
+        if _valid(other, name):
+            return other
+    return own
 
 
 def have_model(name):
-    path = model_path(name)
-    minimum = MODELS[name][1] * 1024 * 1024 * 0.9
-    return path.is_file() and path.stat().st_size >= minimum
+    return _valid(model_path(name), name)
 
 
 def model_size_mb(name):

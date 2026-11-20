@@ -32,7 +32,7 @@ def match_wake(text, wake_words):
         head = "".join(t.group(0).lower() for t in tokens[start:start + n])
         for target in targets:
             score = 1.0 if head == target else difflib.SequenceMatcher(None, head, target).ratio()
-            if score >= .74 and score > best[0]:
+            if score >= .74 and score > best[0] and head[0] == target[0]:
                 best = (score, n)
     if best[1]:
         end = tokens[start + best[1] - 1].end()

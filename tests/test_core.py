@@ -26,6 +26,13 @@ def test_wake_matching():
     assert match_wake("Hallucian close discord", WAKE) == "close discord"
     assert match_wake("thank you for watching", WAKE) is None
     assert match_wake("", WAKE) is None
+    from halcyon.config import DEFAULTS
+    full = DEFAULTS["wake_words"]
+    for phrase in ("Hal-see-on open chrome", "Hell see on what time is it", "Hal sion mute", "Halsey on status",
+                   "Hal zion open steam", "How see on, volume up"):
+        assert match_wake(phrase, full) is not None, phrase
+    for phrase in ("open the halcyon folder", "hello there", "what's the weather", "all season tyres"):
+        assert match_wake(phrase, full) is None, phrase
 
 
 def test_spend_block():
