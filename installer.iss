@@ -30,7 +30,7 @@ Name: "autostart"; Description: "Start Halcyon when Windows starts"; GroupDescri
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "dist\Halcyon\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Halcyon\*"; Excludes: "HalcyonDebug.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon

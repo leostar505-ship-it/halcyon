@@ -26,4 +26,14 @@ exe = EXE(
     console=False,
     upx=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="Halcyon", upx=False)
+dbg = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="HalcyonDebug",
+    icon=os.path.join(root, "assets", "icon.ico"),
+    console=True,
+    upx=False,
+)
+coll = COLLECT(exe, dbg, a.binaries, a.datas, name="Halcyon", upx=False)

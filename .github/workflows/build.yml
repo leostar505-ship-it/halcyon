@@ -60,9 +60,12 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          $p = Start-Process -FilePath dist/Halcyon/Halcyon.exe -ArgumentList "--selftest" -PassThru
+          $p = Start-Process -FilePath dist/Halcyon/HalcyonDebug.exe -ArgumentList "--selftest" -PassThru -RedirectStandardOutput out.txt -RedirectStandardError err.txt
           $done = $p.WaitForExit(70000)
-          if (Test-Path "$env:TEMP/halcyon_selftest.log") { Get-Content "$env:TEMP/halcyon_selftest.log" }
+          Write-Host "exited=$done"
+          if (Test-Path out.txt) { Get-Content out.txt }
+          if (Test-Path err.txt) { Get-Content err.txt }
+          if (Test-Path "$env:TEMP/halcyon_selftest.log") { Get-Content "$env:TEMP/halcyon_selftest.log" } else { Write-Host "no selftest log" }
           if (-not $done) { $p.Kill(); Write-Error "selftest hung"; exit 1 }
           if ($p.ExitCode -ne 0) { Write-Error "selftest exit $($p.ExitCode)"; exit 1 }
 
