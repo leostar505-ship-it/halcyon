@@ -1,0 +1,162 @@
+import os
+import sys
+import tempfile
+import threading
+import time
+
+from PySide6.QtCore import QLockFile, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QGuiApplication, QIcon
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+
+from . import NAME, __version__
+from .actions import Registry
+from .config import Config, actions_dir, config_dir
+from .controller import Controller
+from .hud import Hud
+from .screen import Screen
+from .voice_in import Listener
+from .voice_out import Voice
+from .webhook import WebhookServer
+
+
+def resource(rel):
+    base = getattr(sys, "_MEIPASS", None) or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    return os.path.normpath(os.path.join(base, rel))
+
+
+class Bridge(QObject):
+    status = Signal(str)
+    clip = Signal(str)
+
+
+def open_path(path):
+    if sys.platform == "win32":
+        os.startfile(path)
+    else:
+        import subprocess
+        subprocess.Popen(["xdg-open", path])
+
+
+SAMPLE_EVENTS = {
+    "login": {"kind": "login", "raw": "AuthenticationSuccess", "user": "Alex", "device": "iPhone", "ip": "192.0.2.44",
+              "app": "Safari", "item": "", "message": "", "at": 0},
+    "failed": {"kind": "failed", "raw": "AuthenticationFailure", "user": "Alex", "device": "Android",
+               "ip": "203.0.113.9", "app": "Chrome", "item": "", "message": "", "at": 0},
+    "playback": {"kind": "playback", "raw": "PlaybackStart", "user": "Alex", "device": "Smart TV", "ip": "",
+                 "app": "Jellyfin", "item": "Venom", "message": "", "at": 0},
+    "shutdown": {"kind": "shutdown", "raw": "ServerShutdown", "user": "", "device": "", "ip": "", "app": "",
+                 "item": "", "message": "", "at": 0},
+}
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    selftest = "--selftest" in argv
+    app = QApplication(sys.argv[:1])
+    app.setQuitOnLastWindowClosed(False)
+    app.setApplicationName(NAME)
+    icon_path = resource("assets/icon.png")
+    icon = QIcon(icon_path) if os.path.exists(icon_path) else QIcon()
+    app.setWindowIcon(icon)
+
+    lock = QLockFile(os.path.join(tempfile.gettempdir(), "halcyon.lock"))
+    lock.setStaleLockTime(0)
+    if not selftest and not lock.tryLock(100):
+        return 0
+
+    config = Config()
+    bridge = Bridge()
+    hud = Hud(config.get("hud_monitor"))
+    screen = Screen(config, on_status=bridge.status.emit)
+    voice = Voice(config)
+    clipboard = QGuiApplication.clipboard()
+    bridge.clip.connect(lambda text: clipboard.setText(text))
+    controller = Controller(config, hud.bridge, screen, voice, clipboard_cb=bridge.clip.emit)
+    controller.status_cb = bridge.status.emit
+
+    tray = QSystemTrayIcon(icon, app)
+    tray.setToolTip("%s %s" % (NAME, __version__))
+    menu = QMenu()
+
+    def act(label, fn, checkable=False, checked=False):
+        a = QAction(label, menu)
+        a.setCheckable(checkable)
+        if checkable:
+            a.setChecked(checked)
+            a.toggled.connect(fn)
+        else:
+            a.triggered.connect(lambda: fn())
+        menu.addAction(a)
+        return a
+
+    listener = Listener(config, controller.on_command, on_level=lambda v: hud.bridge.amp(v) if controller.asking or
+                        hud.state == "listening" else None, on_status=bridge.status.emit, on_wake=controller.on_wake)
+    controller.attach_listener(listener)
+    webhook_server = WebhookServer(config, controller.on_webhook, on_status=bridge.status.emit)
+
+    def talk():
+        controller.on_wake()
+        listener.request_dictation()
+
+    act("Talk now", talk)
+    act("Yes", lambda: controller.answer(True))
+    act("No", lambda: controller.answer(False))
+    act("Cancel current task", controller.cancel)
+    menu.addSeparator()
+    mute = act("Mute voice", lambda on: voice.set_muted(on), True, voice.muted)
+    sub = menu.addMenu("Test webhook")
+    for key in SAMPLE_EVENTS:
+        a = QAction(key.capitalize(), sub)
+        a.triggered.connect(lambda _=False, k=key: threading.Thread(
+            target=controller.on_webhook, args=(dict(SAMPLE_EVENTS[k], at=time.time()),), daemon=True).start())
+        sub.addAction(a)
+    sub2 = menu.addMenu("Small screen")
+    for label, fn in (("Drowsy", screen.eyes.drowse), ("Sleep", screen.eyes.sleep_now), ("Wake", screen.eyes.wake)):
+        a = QAction(label, sub2)
+        a.triggered.connect(lambda _=False, f=fn: f())
+        sub2.addAction(a)
+    menu.addSeparator()
+    act("Open actions folder", lambda: open_path(str(actions_dir())))
+    act("Open settings file", lambda: open_path(str(config.path)))
+    act("Quit", app.quit)
+    tray.setContextMenu(menu)
+    tray.show()
+
+    def on_status(text):
+        tray.setToolTip("%s: %s" % (NAME, text))
+        if any(w in text.lower() for w in ("problem", "unavailable", "not found", "downloading", "connected")):
+            tray.showMessage(NAME, text, QSystemTrayIcon.Information, 4000)
+
+    bridge.status.connect(on_status)
+
+    hotkey = None
+    try:
+        from .vendor.hotkey import Hotkey
+        hotkey = Hotkey()
+        hotkey.start(config.get("hotkey"), lambda: QTimer.singleShot(0, talk))
+    except Exception:
+        hotkey = None
+
+    if selftest:
+        screen.start()
+        webhook_server.start()
+        QTimer.singleShot(1500, lambda: threading.Thread(
+            target=controller.on_webhook, args=(dict(SAMPLE_EVENTS["login"], at=time.time()),), daemon=True).start())
+        QTimer.singleShot(9000, app.quit)
+    else:
+        screen.start()
+        webhook_server.start()
+        listener.start()
+        tray.showMessage(NAME, "Running. Say \"hal-see-on\" or press %s." % config.get("hotkey").upper(),
+                         QSystemTrayIcon.Information, 4000)
+    code = app.exec()
+    try:
+        if hotkey:
+            hotkey.stop()
+        listener.stop()
+        screen.stop()
+        webhook_server.stop()
+        voice.stop()
+    except Exception:
+        pass
+    return code

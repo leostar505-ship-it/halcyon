@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+build/
+dist/
+vendor/whisper/
+whisper-src/
+whisper-build/
+.pytest_cache/

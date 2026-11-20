@@ -1,0 +1,6 @@
+PySide6-Essentials>=6.7
+numpy>=1.26
+pyserial>=3.5
+psutil>=5.9
+sounddevice>=0.4.7
+mss>=9.0
