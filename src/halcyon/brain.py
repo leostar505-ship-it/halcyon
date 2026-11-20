@@ -18,6 +18,9 @@ class BrainError(Exception):
 
 
 def find_claude():
+    override = os.environ.get("HALCYON_CLAUDE")
+    if override and os.path.isfile(override):
+        return override
     found = shutil.which("claude")
     if found:
         return found

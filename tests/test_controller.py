@@ -85,10 +85,16 @@ class FakeVoice:
 def env(tmp_path, monkeypatch):
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    exe = bindir / "claude"
-    exe.write_text(FAKE)
-    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
+    script = bindir / "fake_claude.py"
+    script.write_text(FAKE)
+    if sys.platform == "win32":
+        exe = bindir / "claude.cmd"
+        exe.write_text('@"%s" "%s" %%*\r\n' % (sys.executable, script))
+    else:
+        exe = bindir / "claude"
+        exe.write_text("#!/bin/sh\nexec %s %s \"$@\"\n" % (sys.executable, script))
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("HALCYON_CLAUDE", str(exe))
     monkeypatch.setattr(cfgmod, "config_dir", lambda: tmp_path)
     monkeypatch.setattr("halcyon.config.config_dir", lambda: tmp_path)
     (tmp_path / "actions").mkdir(exist_ok=True)
