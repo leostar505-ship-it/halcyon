@@ -14,6 +14,7 @@ from .config import Config, actions_dir, config_dir
 from .controller import Controller
 from .hud import Hud
 from .screen import Screen
+from .settings import SettingsDialog
 from .voice_in import Listener
 from .voice_out import Voice
 from .webhook import WebhookServer
@@ -117,6 +118,19 @@ def main(argv=None):
         sub2.addAction(a)
     menu.addSeparator()
     act("Open actions folder", lambda: open_path(str(actions_dir())))
+    dialogs = []
+
+    def settings():
+        if dialogs and dialogs[0].isVisible():
+            dialogs[0].raise_()
+            dialogs[0].activateWindow()
+            return
+        dlg = SettingsDialog(config, on_saved=lambda v: voice.set_muted(bool(v["voice_muted"])))
+        dlg.setWindowIcon(icon)
+        dialogs[:] = [dlg]
+        dlg.show()
+
+    act("Settings...", settings)
     act("Open settings file", lambda: open_path(str(config.path)))
     act("Quit", app.quit)
     tray.setContextMenu(menu)

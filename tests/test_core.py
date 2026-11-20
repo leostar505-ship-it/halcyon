@@ -77,3 +77,20 @@ def test_card_lines():
     ev = webhook.normalise({"event": "PlaybackStart", "user": "Alex", "item": "Venom", "device": "TV"})
     labels = [a for a, _ in webhook.card_lines(ev)]
     assert labels == ["User", "Playing", "Device", "App"]
+
+
+def test_settings_dialog_saves(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    from halcyon import config as cfgmod, settings
+    monkeypatch.setattr(cfgmod, "config_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    cfg = cfgmod.Config()
+    dlg = settings.SettingsDialog(cfg)
+    dlg.hotkey.setText("ctrl+alt+j")
+    dlg.wake.setText("halcyon, hal see on")
+    dlg.port.setValue(9001)
+    dlg.save()
+    assert cfg.get("hotkey") == "ctrl+alt+j"
+    assert cfg.get("wake_words") == ["halcyon", "hal see on"]
+    assert cfg.get("webhook_port") == 9001
+    assert cfgmod.Config().get("webhook_port") == 9001

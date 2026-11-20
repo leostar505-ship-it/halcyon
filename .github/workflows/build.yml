@@ -60,7 +60,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          $p = Start-Process -FilePath dist/Halcyon.exe -ArgumentList "--selftest" -PassThru
+          $p = Start-Process -FilePath dist/Halcyon/Halcyon.exe -ArgumentList "--selftest" -PassThru
           if (-not $p.WaitForExit(60000)) { $p.Kill(); Write-Error "selftest hung"; exit 1 }
           if ($p.ExitCode -ne 0) { Write-Error "selftest exit $($p.ExitCode)"; exit 1 }
 
@@ -71,10 +71,17 @@ jobs:
           $v = (Select-String -Path src/halcyon/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
           "v=$v" >> $env:GITHUB_OUTPUT
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.v }}" installer.iss'
+
       - uses: actions/upload-artifact@v4
         with:
           name: Halcyon
-          path: dist/Halcyon.exe
+          path: installer_output/Halcyon-Setup.exe
 
     outputs:
       version: ${{ steps.ver.outputs.v }}
@@ -89,7 +96,7 @@ jobs:
           path: out
       - uses: ncipollo/release-action@v1
         with:
-          artifacts: out/Halcyon.exe
+          artifacts: out/Halcyon-Setup.exe
           tag: v${{ needs.build.outputs.version }}
           name: Halcyon ${{ needs.build.outputs.version }}
           commit: ${{ github.sha }}

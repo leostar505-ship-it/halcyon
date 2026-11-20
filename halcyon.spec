@@ -19,12 +19,11 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="Halcyon",
     icon=os.path.join(root, "assets", "icon.ico"),
     console=False,
     upx=False,
-    runtime_tmpdir=None,
 )
+coll = COLLECT(exe, a.binaries, a.datas, name="Halcyon", upx=False)
