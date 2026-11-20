@@ -12,7 +12,7 @@ a = Analysis(
     pathex=[os.path.join(root, "src")],
     binaries=binaries,
     datas=[(os.path.join(root, "assets"), "assets"), (os.path.join(root, "tools"), "tools")],
-    hiddenimports=collect_submodules("halcyon") + ["serial.tools.list_ports", "sounddevice", "mss"],
+    hiddenimports=collect_submodules("halcyon") + collect_submodules("numpy") + ["serial.tools.list_ports", "sounddevice", "mss"],
     excludes=["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.Qt3DCore"],
 )
 pyz = PYZ(a.pure)
