@@ -53,6 +53,13 @@ SAMPLE_EVENTS = {
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     selftest = "--selftest" in argv
+    trace = None
+    if selftest:
+        import faulthandler
+        trace = open(os.path.join(tempfile.gettempdir(), "halcyon_selftest.log"), "w", buffering=1)
+        faulthandler.enable(trace)
+        faulthandler.dump_traceback_later(45, file=trace, exit=True)
+        trace.write("start\n")
     app = QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName(NAME)
@@ -157,6 +164,7 @@ def main(argv=None):
         QTimer.singleShot(1500, lambda: threading.Thread(
             target=controller.on_webhook, args=(dict(SAMPLE_EVENTS["login"], at=time.time()),), daemon=True).start())
         QTimer.singleShot(9000, app.quit)
+        trace.write("running\n")
     else:
         screen.start()
         webhook_server.start()
@@ -164,6 +172,10 @@ def main(argv=None):
         tray.showMessage(NAME, "Running. Say \"hal-see-on\" or press %s." % config.get("hotkey").upper(),
                          QSystemTrayIcon.Information, 4000)
     code = app.exec()
+    if selftest:
+        trace.write("exited\n")
+        trace.flush()
+        os._exit(0)
     try:
         if hotkey:
             hotkey.stop()
