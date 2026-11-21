@@ -12,16 +12,28 @@ import wave
 
 import numpy as np
 
-def split_chunks(text, first_max=90, max_chars=160):
-    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x.strip()]
-    chunks = []
-    for sent in sentences:
-        limit = first_max if not chunks else max_chars
-        if chunks and len(chunks[-1]) + 1 + len(sent) <= max_chars and len(chunks) > 1:
+def split_chunks(text, first_max=45, max_chars=160):
+    text = text.strip()
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text) if x.strip()]
+    if not sentences:
+        return [text]
+    first = sentences[0]
+    rest = sentences[1:]
+    if len(first) > first_max:
+        m = None
+        for m in re.finditer(r"[,;:]\s+", first):
+            if m.end() >= 18 and len(first) - m.end() >= 12:
+                break
+        if m is not None and m.end() >= 18 and len(first) - m.end() >= 12:
+            rest.insert(0, first[m.end():].strip())
+            first = first[:m.end()].strip()
+    chunks = [first]
+    for sent in rest:
+        if len(chunks) > 1 and len(chunks[-1]) + 1 + len(sent) <= max_chars:
             chunks[-1] += " " + sent
         else:
             chunks.append(sent)
-    return chunks or [text]
+    return chunks
 
 
 FLAGS = 0x08000000 if sys.platform == "win32" else 0
