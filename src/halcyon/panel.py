@@ -851,7 +851,10 @@ class Panel(QWidget):
         def job():
             ok = False
             try:
-                ok = CB.install(self.cb_log)
+                again = CB.installed()
+                if again and self.chatterbox is not None:
+                    self.chatterbox.stop()
+                ok = CB.install(self.cb_log, clean=again)
                 if ok and self.chatterbox is not None:
                     self.chatterbox.start(self.cb_log)
             except Exception as exc:

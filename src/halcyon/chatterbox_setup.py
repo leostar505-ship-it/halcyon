@@ -74,7 +74,23 @@ def stream(cmd, log, cwd=None):
     return p.wait()
 
 
-def install(log):
+def wipe(log):
+    target = root()
+    for child in list(target.iterdir()):
+        if child.name == "server.log":
+            continue
+        try:
+            shutil.rmtree(child) if child.is_dir() else child.unlink()
+        except OSError as exc:
+            log("Could not remove %s: %s" % (child.name, exc))
+            return False
+    log("Old Chatterbox install removed.")
+    return True
+
+
+def install(log, clean=False):
+    if clean and not wipe(log):
+        return False
     py = find_python()
     if not py and sys.platform == "win32":
         log("Python 3.11 not found. Installing it with winget (this can take a few minutes)...")
