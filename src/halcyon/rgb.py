@@ -191,6 +191,7 @@ class OpenRGB:
         self.client = None
         self.sized = False
         self.count = 0
+        self.detail = []
 
     def grow_zones(self):
         if self.sized or self.zone_leds <= 0 or not self.connect():
@@ -242,14 +243,22 @@ class OpenRGB:
                 continue
             try:
                 n = 0
+                detail = []
                 for d in list(self.client.devices):
                     c = apply_gain(rgb, tint(d.name) if tint else None)
                     try:
-                        d.set_color(RGBColor(*c), fast=True)
-                    except TypeError:
                         d.set_color(RGBColor(*c))
+                        detail.append("%s ok" % d.name)
+                    except Exception as exc1:
+                        try:
+                            d.set_mode("direct")
+                            d.set_color(RGBColor(*c))
+                            detail.append("%s ok after direct mode" % d.name)
+                        except Exception as exc2:
+                            detail.append("%s FAILED %s" % (d.name, exc2 or exc1))
                     n += 1
                 self.count = n
+                self.detail = detail
                 return
             except Exception as exc:
                 last = exc
@@ -259,7 +268,7 @@ class OpenRGB:
 
     def status(self):
         if self.client is not None:
-            return "connected, %d device(s)" % len(self.client.devices)
+            return "connected, %d device(s): %s" % (len(self.client.devices), "; ".join(self.detail) or "no paint yet")
         return "not connected (start the SDK server in OpenRGB)"
 
     def close(self):
