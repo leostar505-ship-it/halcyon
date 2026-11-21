@@ -55,6 +55,10 @@ jobs:
         shell: pwsh
         run: pyinstaller halcyon.spec --noconfirm --distpath dist --workpath build
 
+      - name: Build portable exe
+        shell: pwsh
+        run: pyinstaller halcyon_portable.spec --noconfirm --distpath portable --workpath build_portable
+
       - name: Smoke test
         continue-on-error: true
         shell: pwsh
@@ -87,7 +91,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Halcyon
-          path: installer_output/Halcyon-Setup.exe
+          path: |
+            installer_output/Halcyon-Setup.exe
+            portable/Halcyon-Portable.exe
 
     outputs:
       version: ${{ steps.ver.outputs.v }}
@@ -102,7 +108,7 @@ jobs:
           path: out
       - uses: ncipollo/release-action@v1
         with:
-          artifacts: out/Halcyon-Setup.exe
+          artifacts: out/*.exe
           tag: ${{ github.ref_name == 'rgb' && 'rgb-test' || format('v{0}', needs.build.outputs.version) }}
           name: ${{ github.ref_name == 'rgb' && 'Halcyon RGB test' || format('Halcyon {0}', needs.build.outputs.version) }}
           prerelease: ${{ github.ref_name == 'rgb' }}
