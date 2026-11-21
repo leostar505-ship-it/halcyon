@@ -163,3 +163,9 @@ def test_corsair_correction():
     assert corsair.correct((255, 0, 0)) == (255, 0, 0)
     r, g, b = corsair.correct((255, 123, 35))
     assert g < 123 and b < 35
+
+
+def test_cues_render():
+    from halcyon import cues
+    for name in cues.RECIPES:
+        assert cues.render(name)[:4] == b"RIFF"

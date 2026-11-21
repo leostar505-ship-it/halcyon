@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 
+from .cues import NullCues
 from .rgb import NullLights
 from . import brain, safety, webhook
 from .actions import Registry
@@ -27,8 +28,9 @@ class Ctx:
 
 
 class Controller:
-    def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None):
+    def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None, cues=None):
         self.config = config
+        self.cues = cues or NullCues()
         self.hud = hud
         self.screen = screen
         self.voice = voice
@@ -72,6 +74,7 @@ class Controller:
         threading.Thread(target=self.run_command, args=(text,), daemon=True).start()
 
     def on_wake(self):
+        self.cues.play("wake")
         self.light_on("info")
         self.hud.begin(False)
         self.hud.state("listening")
@@ -97,6 +100,7 @@ class Controller:
         self.screen.eyes.after(delay, lambda: (self.screen.set_expression(expr), self.screen.set_level("info")))
 
     def ask_yes_no(self, question, bullet):
+        self.cues.play("ask")
         jid = self.hud.job_add(bullet, "ask")
         self.hud.level("warn")
         self.screen.set_level("warn")
@@ -143,6 +147,7 @@ class Controller:
         threading.Timer(delay, later).start()
 
     def finish_hud(self, seconds=5.0):
+        self.cues.play("done")
         self.light_off(min(seconds, 3.0))
         self.hud.state("idle")
         self.hud.close_in(seconds)
@@ -155,6 +160,7 @@ class Controller:
             self.screen.set_expression("neutral")
             return
         if safety.CANCEL_RE.match(text):
+            self.cues.play("nevermind")
             self.light_off()
             self.hud.close()
             self.screen.set_expression("neutral")
@@ -167,6 +173,7 @@ class Controller:
             self.hud.level("alert")
             self.screen.set_level("alert")
             self.screen.set_expression("sad")
+            self.cues.play("error")
             self.say("Something went wrong, sir. %s" % type(exc).__name__)
             self.finish_hud()
             self.settle()
@@ -343,6 +350,7 @@ class Controller:
             return
         level = ev.get("level") or webhook.LEVEL.get(ev["kind"], "info")
         expr = ev.get("expr") or webhook.EXPR.get(ev["kind"], "curious")
+        self.cues.play("alert" if level == "alert" else "info")
         self.light_on(level)
         self.screen.card(webhook.card_lines(ev), level, expr)
         with self.lock:

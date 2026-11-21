@@ -81,7 +81,9 @@ def main(argv=None):
     clipboard = QGuiApplication.clipboard()
     bridge.clip.connect(lambda text: clipboard.setText(text))
     lights = Lights(config)
-    controller = Controller(config, hud.bridge, screen, voice, lights=lights, clipboard_cb=bridge.clip.emit)
+    from .cues import Cues
+    cues = Cues(config)
+    controller = Controller(config, hud.bridge, screen, voice, lights=lights, clipboard_cb=bridge.clip.emit, cues=cues)
     controller.status_cb = bridge.status.emit
 
     tray = QSystemTrayIcon(icon, app)
@@ -125,6 +127,20 @@ def main(argv=None):
         a = QAction(label, sub2)
         a.triggered.connect(lambda _=False, f=fn: f())
         sub2.addAction(a)
+    panel_holder = []
+
+    def open_panel():
+        if not panel_holder:
+            from .panel import Panel
+            p = Panel(config, voice, hud, controller, SAMPLE_EVENTS)
+            bridge.status.connect(p.note)
+            panel_holder.append(p)
+        panel_holder[0].show()
+        panel_holder[0].raise_()
+        panel_holder[0].activateWindow()
+
+    act("Open Halcyon", open_panel)
+    tray.activated.connect(lambda reason: open_panel() if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
     menu.addSeparator()
     act("Open actions folder", lambda: open_path(str(actions_dir())))
     dialogs = []
@@ -171,6 +187,8 @@ def main(argv=None):
     act("Quit", app.quit)
     tray.setContextMenu(menu)
     tray.show()
+    if config.get("open_panel_on_start"):
+        QTimer.singleShot(600, open_panel)
 
     def on_status(text):
         tray.setToolTip("%s: %s" % (NAME, text))

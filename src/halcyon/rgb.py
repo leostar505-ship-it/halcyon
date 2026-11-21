@@ -117,10 +117,31 @@ class Govee:
 
 
 class OpenRGB:
-    def __init__(self, host="127.0.0.1", port=6742):
+    def __init__(self, host="127.0.0.1", port=6742, zone_leds=0):
         self.host = host
         self.port = port
+        self.zone_leds = int(zone_leds or 0)
         self.client = None
+        self.sized = False
+
+    def grow_zones(self):
+        if self.sized or self.zone_leds <= 0 or not self.connect():
+            return
+        self.sized = True
+        try:
+            from openrgb.utils import DeviceType, ZoneType
+            for d in list(self.client.devices):
+                if d.type != DeviceType.MOTHERBOARD:
+                    continue
+                for z in d.zones:
+                    if z.type == ZoneType.LINEAR and len(z.leds) < self.zone_leds:
+                        try:
+                            z.resize(self.zone_leds)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        self.close()
 
     def connect(self):
         if self.client is not None:
@@ -144,6 +165,7 @@ class OpenRGB:
 
     def colour(self, rgb, tint=None):
         from openrgb.utils import RGBColor
+        self.grow_zones()
         for attempt in (1, 2):
             self.close()
             if not self.connect():
@@ -199,7 +221,7 @@ class Lights:
         else:
             self.backends.append(Govee(parse_ips(config.get("govee_ips"))))
             if config.get("openrgb_enabled"):
-                self.backends.append(OpenRGB(config.get("openrgb_host"), int(config.get("openrgb_port"))))
+                self.backends.append(OpenRGB(config.get("openrgb_host"), int(config.get("openrgb_port")), config.get("rgb_zone_leds")))
             if config.get("icue_enabled"):
                 from .corsair import Corsair
                 self.backends.append(Corsair())

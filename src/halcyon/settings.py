@@ -108,6 +108,15 @@ class SettingsDialog(QDialog):
         lf.addRow(self.rgb)
         lf.addRow("Brightness", self.rgb_brightness)
         lf.addRow("Govee light addresses", self.govee)
+        self.cues_on = QCheckBox("Play subtle sound cues")
+        self.cues_on.setChecked(bool(config.get("cues_enabled")))
+        self.cue_vol = QSpinBox()
+        self.cue_vol.setRange(0, 100)
+        self.cue_vol.setSuffix(" %")
+        self.cue_vol.setValue(int(round(float(config.get("cues_volume")) * 100)))
+        self.zone_leds = QSpinBox()
+        self.zone_leds.setRange(0, 240)
+        self.zone_leds.setValue(int(config.get("rgb_zone_leds")))
         self.icue = QCheckBox("Control Corsair devices through iCUE (iCUE must be running with its SDK switch on)")
         self.icue.setChecked(bool(config.get("icue_enabled")))
         self.swatch = QPushButton()
@@ -134,7 +143,10 @@ class SettingsDialog(QDialog):
         lf.addRow(self.orgb)
         lf.addRow("OpenRGB address", self.orgb_host)
         lf.addRow("OpenRGB port", self.orgb_port)
+        lf.addRow("LEDs per motherboard fan header (0 = leave alone)", self.zone_leds)
         lf.addRow(self.icue)
+        lf.addRow(self.cues_on)
+        lf.addRow("Cue volume", self.cue_vol)
         lf.addRow("Default colour", self.swatch)
         lf.addRow("Correct a device", dev_row)
         lf.addRow("Colour balance", gain_row)
@@ -225,6 +237,9 @@ class SettingsDialog(QDialog):
             "openrgb_host": self.orgb_host.text().strip() or "127.0.0.1",
             "openrgb_port": self.orgb_port.value(),
             "icue_enabled": self.icue.isChecked(),
+            "cues_enabled": self.cues_on.isChecked(),
+            "cues_volume": self.cue_vol.value() / 100.0,
+            "rgb_zone_leds": self.zone_leds.value(),
             "rgb_default": list(self.default_rgb),
             "rgb_tweaks": self.tweaks,
         }
