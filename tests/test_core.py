@@ -150,6 +150,28 @@ def test_lights_flow():
     assert rgb.scale((255, 190, 0), 0) == (0, 0, 0)
 
 
+def test_lights_refresh():
+    from halcyon import rgb
+
+    class Cfg:
+        def get(self, k):
+            return {"rgb_enabled": True, "rgb_brightness": 100, "rgb_default": [10, 20, 30], "rgb_tweaks": {}}[k]
+
+    class Resettable(FakeBackend):
+        resets = 0
+
+        def reset(self):
+            Resettable.resets += 1
+
+    fb = Resettable()
+    lights = rgb.Lights(Cfg(), govee=fb)
+    lights.show("alert")
+    lights.refresh()
+    lights.shutdown()
+    assert Resettable.resets == 1
+    assert fb.log[0] == fb.log[1] == rgb.COLOURS["alert"]
+
+
 def test_govee_payload(monkeypatch):
     from halcyon import rgb
     sent = []

@@ -562,8 +562,8 @@ class Panel(QWidget):
         self.lt_status.setMaximumHeight(110)
         l3.addWidget(self.lt_status)
         sr = QHBoxLayout()
-        rb = QPushButton("Refresh status")
-        rb.clicked.connect(self.refresh_lights_status)
+        rb = QPushButton("Refresh lights")
+        rb.clicked.connect(self.refresh_lights)
         ab = QPushButton("Apply default now")
         ab.clicked.connect(lambda: self.set_default(self.current_default()))
         sr.addWidget(rb)
@@ -582,6 +582,12 @@ class Panel(QWidget):
             self.lights.set_govee_ips(self.gv_ips.text())
             self.lights.apply_default()
         self.lt_note.setText("Govee addresses saved.")
+
+    def refresh_lights(self):
+        if self.lights is not None and hasattr(self.lights, "refresh"):
+            self.lights.refresh()
+            self.lt_note.setText("Reconnecting and repainting all lights...")
+        self.refresh_lights_status()
 
     def refresh_lights_status(self):
         if self.lights is None or not hasattr(self.lights, "status"):

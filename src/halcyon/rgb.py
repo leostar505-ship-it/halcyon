@@ -284,6 +284,19 @@ class OpenRGB:
             pass
         self.client = None
 
+    def reset(self):
+        import struct
+        self.close()
+        try:
+            s = socket.create_connection((self.host, self.port), 2)
+            s.sendall(b"ORGB" + struct.pack("<III", 0, 140, 0))
+            s.close()
+            time.sleep(1.5)
+        except OSError:
+            pass
+        self.sized = False
+        self.error = ""
+
 
 class NullLights:
     def show(self, level):
@@ -346,6 +359,10 @@ class Lights:
     def apply_default(self):
         if self.enabled():
             self.q.put(("default", None))
+
+    def refresh(self):
+        if self.enabled():
+            self.q.put(("refresh", None))
 
     def device_names(self):
         out = []
@@ -467,6 +484,15 @@ class Lights:
                 elif op == "default":
                     self.paint(self.default_colour())
                     self.active = False
+                elif op == "refresh":
+                    for b in self.backends:
+                        fn = getattr(b, "reset", None) or getattr(b, "refresh", None)
+                        if fn:
+                            try:
+                                fn()
+                            except Exception:
+                                pass
+                    self.paint(self.last if self.last is not None else self.default_colour())
                 elif op == "beat" and self.enabled():
                     self.paint(self.last if self.last is not None else self.default_colour(), only_local=True)
             except Exception:
