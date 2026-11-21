@@ -193,6 +193,8 @@ def fallback_line(ev):
 
 
 def event_line(ev, model):
+    if ev.get("kind") in ("login", "failed", "playback", "shutdown", "added"):
+        return fallback_line(ev)
     try:
         out = ask_model(model, EVENT_PROMPT.format(event=json.dumps(ev)), timeout=12)
         line = out.strip().strip('"').splitlines()[0].strip()
