@@ -6,36 +6,48 @@ import threading
 import wave
 
 RATE = 22050
+CUTOFF = 2400.0
 
 RECIPES = {
-    "wake": [(660, 0.07), (990, 0.11)],
-    "done": [(880, 0.07), (660, 0.12)],
-    "nevermind": [(520, 0.06), (390, 0.10)],
-    "alert": [(440, 0.09), (0, 0.05), (440, 0.09)],
-    "ask": [(740, 0.06), (0, 0.03), (740, 0.06)],
-    "error": [(300, 0.14), (225, 0.16)],
-    "info": [(1175, 0.06)],
+    "wake": [(0.00, 880, 880, 0.08, 0.9, 0.04), (0.08, 1175, 1175, 0.16, 1.0, 0.10)],
+    "done": [(0.00, 784, 784, 0.09, 0.9, 0.05), (0.09, 1175, 1175, 0.22, 1.0, 0.16)],
+    "ask": [(0.00, 660, 880, 0.20, 0.9, 0.08)],
+    "nevermind": [(0.00, 700, 600, 0.20, 0.55, 0.14)],
+    "info": [(0.00, 1047, 1047, 0.30, 0.7, 0.24)],
+    "alert": [(0.00, 523, 523, 0.20, 1.0, 0.10), (0.34, 523, 523, 0.20, 1.0, 0.10), (0.00, 261, 261, 0.54, 0.5, 0.30)],
+    "error": [(0.00, 392, 392, 0.15, 1.0, 0.06), (0.15, 311, 311, 0.28, 1.0, 0.20)],
 }
 
 
-def tone(freq, seconds, volume):
-    n = int(RATE * seconds)
-    out = []
-    for i in range(n):
-        if freq <= 0:
-            out.append(0)
-            continue
-        t = i / RATE
-        env = min(1.0, i / (RATE * 0.008)) * min(1.0, (n - i) / (RATE * 0.04))
-        v = math.sin(2 * math.pi * freq * t) * 0.8 + math.sin(2 * math.pi * freq * 2 * t) * 0.12
-        out.append(int(32767 * volume * env * v))
-    return out
+def triangle(phase):
+    return 2.0 / math.pi * math.asin(math.sin(phase))
+
+
+def render_samples(name, volume):
+    parts = RECIPES[name]
+    total = max(s + d for s, _, _, d, _, _ in parts) + 0.05
+    out = [0.0] * int(RATE * total)
+    alpha = 1.0 - math.exp(-2.0 * math.pi * CUTOFF / RATE)
+    for start, f0, f1, dur, level, rel in parts:
+        n = int(RATE * dur)
+        off = int(RATE * start)
+        phase = 0.0
+        for i in range(n):
+            frac = i / max(1, n - 1)
+            freq = f0 * (f1 / f0) ** frac
+            phase += 2.0 * math.pi * freq / RATE
+            env = min(1.0, i / (RATE * 0.014)) * min(1.0, (n - i) / (RATE * rel))
+            out[off + i] += triangle(phase) * env * level
+    y = 0.0
+    for i, v in enumerate(out):
+        y += alpha * (v - y)
+        out[i] = y
+    peak = max(1e-6, max(abs(v) for v in out))
+    return [int(32767 * volume * v / peak) for v in out]
 
 
 def render(name, volume=0.25):
-    samples = []
-    for freq, seconds in RECIPES[name]:
-        samples += tone(freq, seconds, volume)
+    samples = render_samples(name, volume)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
