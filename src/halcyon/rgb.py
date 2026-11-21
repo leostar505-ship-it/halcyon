@@ -448,6 +448,8 @@ class Lights:
     def next_op(self):
         try:
             wait = float(self.config.get("rgb_keepalive") or 0)
+            if wait > 5:
+                wait = 5.0
         except (KeyError, TypeError, ValueError):
             wait = 0.0
         try:
