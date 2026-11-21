@@ -596,7 +596,7 @@ def app_candidates(ctx):
             continue
     known = list((ctx.config.get("apps") or {}).keys()) + list(start_menu_apps().keys())
     known += [g["name"] for g in steam_games()] + [g["name"] for g in epic_games()]
-    return names[:80], known[:150]
+    return names[:30], known[:60]
 
 
 def unresolved_note(ctx, name, args, said):
@@ -607,11 +607,9 @@ def unresolved_note(ctx, name, args, said):
         running, known = app_candidates(ctx)
     else:
         return ""
-    return ("Your last choice was action %s with app %s, but nothing on the PC matches that name. "
-            "Speech recognition may have misheard it. Running apps: %s. Installed apps and games: %s. "
-            "Decide what the user most likely meant and reply with the corrected route JSON. "
-            "If it is genuinely unclear, reply with a chat route that asks one short clarifying question."
-            % (name, json.dumps(app), ", ".join(running), ", ".join(known)))
+    return ("No app matches %s (speech recognition probably misheard). Running: %s. Installed: %s. "
+            "Reply with the corrected route JSON for what they most likely meant, or a one-line chat question if truly unclear."
+            % (json.dumps(app), ", ".join(running), ", ".join(known)))
 
 
 GITHUB_COMMITS = "https://api.github.com/repos/leostar505-ship-it/halcyon/commits?per_page=8"
