@@ -134,7 +134,8 @@ def main(argv=None):
             dialogs[0].raise_()
             dialogs[0].activateWindow()
             return
-        dlg = SettingsDialog(config, on_saved=lambda v: voice.set_muted(bool(v["voice_muted"])))
+        dlg = SettingsDialog(config, on_saved=lambda v: (voice.set_muted(bool(v["voice_muted"])), lights.apply_default()),
+                             device_finder=lights.device_names)
         dlg.setWindowIcon(icon)
         dialogs[:] = [dlg]
         dlg.show()
@@ -151,12 +152,13 @@ def main(argv=None):
     for label, level in (("Cyan", "info"), ("Yellow", "warn"), ("Red", "alert")):
         a = lights_menu.addAction(label)
         a.triggered.connect(lambda checked=False, lv=level: lights.show(lv))
-    lights_menu.addAction("Restore").triggered.connect(lambda checked=False: lights.restore())
+    lights_menu.addAction("Back to default colour").triggered.connect(lambda checked=False: lights.apply_default())
     lights_menu.addAction("Scan lights and devices").triggered.connect(lambda checked=False: lights_scan())
 
     act("Settings...", settings)
     act("Open settings file", lambda: open_path(str(config.path)))
     app.aboutToQuit.connect(lights.shutdown)
+    QTimer.singleShot(2500, lights.apply_default)
     def about():
         box = QMessageBox()
         box.setWindowTitle("About %s" % NAME)

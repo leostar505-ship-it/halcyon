@@ -5,3 +5,4 @@ psutil>=5.9
 sounddevice>=0.4.7
 mss>=9.0
 openrgb-python>=0.3.0
+cuesdk>=4.0

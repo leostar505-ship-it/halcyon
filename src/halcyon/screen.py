@@ -34,6 +34,11 @@ LEVELS = {
 }
 
 IDLE_SECONDS = 60
+EW = 40
+EH = 66
+EGAP = 14
+CARD_X = 10
+CARD_W = 102
 
 
 def clamp(v, a=0.0, b=1.0):
@@ -72,7 +77,7 @@ class Eyes:
         self.expr = "neutral"
         self.activity = "none"
         self.cx = Spring(80.0)
-        self.cy = Spring(54.0)
+        self.cy = Spring(60.0)
         self.sc = Spring(1.0)
         self.lx = Spring(0.0)
         self.ly = Spring(0.0)
@@ -268,10 +273,10 @@ class Eyes:
         for key in self.col:
             for c in range(3):
                 self.col[key][c] += (lt[key][c] - self.col[key][c]) * k
-        self.cx.t = 134 if self.side else 80
-        self.sc.t = .46 if self.side else 1
-        self.cy.t = (86 + math.sin(t * 1.7) * .6) if self.activity == "sleep" else \
-            (54 + ((1 - d_base) * 4 + dip * 3 if self.drowse_start else 0))
+        self.cx.t = 136 if self.side else 80
+        self.sc.t = .44 if self.side else 1
+        self.cy.t = (95 + math.sin(t * 1.7) * .6) if self.activity == "sleep" else \
+            (60 + ((1 - d_base) * 4 + dip * 3 if self.drowse_start else 0))
         if t < self.frantic:
             if t > self.next_dart:
                 self.lx.t = random.uniform(-1.6, 1.6)
@@ -320,9 +325,9 @@ class Eyes:
     def _draw_eyes(self, p, t):
         s = self.sc.x
         cur = self.cur
-        w = 34 * s * cur["ws"]
-        base = 44 * s * cur["hs"]
-        gap = 13 * s
+        w = EW * s * cur["ws"]
+        base = EH * s * cur["hs"]
+        gap = EGAP * s
         pulse = 1 + .07 * math.sin(t * 11) if self.activity == "speak" else 1
         for i in range(2):
             inner = 1 if i == 0 else -1
@@ -335,7 +340,7 @@ class Eyes:
             ey = self.cy.x + self.ly.x * 4 * s
             p.save()
             p.translate(ex, ey)
-            r = max(.5, min(11 * s, eh / 2, w / 2))
+            r = max(.5, min(14 * s, eh / 2, w / 2))
             path = QPainterPath()
             path.addRoundedRect(QRectF(-w / 2, -eh / 2, w, eh), r, r)
             g = QLinearGradient(0, -eh / 2, 0, eh / 2)
@@ -379,63 +384,104 @@ class Eyes:
                 p.fillPath(bot, QColor(0, 0, 0))
             p.restore()
 
+    def _status_word(self):
+        if self.level == "alert":
+            return "ALERT"
+        if self.level == "warn":
+            return "CAUTION"
+        if self.activity == "sleep":
+            return "STANDBY"
+        return "ONLINE"
+
+    def _hud_font(self, px, bold=False):
+        self.font.setPixelSize(px)
+        self.font.setBold(bold)
+        self.font.setHintingPreference(QFont.PreferFullHinting)
+        self.font.setStyleStrategy(QFont.PreferAntialias)
+        return self.font
+
+    def _draw_hud(self, p, t):
+        mid = qcol(self.col["mid"])
+        dim = qcol(self.col["bar"])
+        p.setRenderHint(QPainter.Antialiasing, False)
+        p.setPen(dim)
+        p.drawLine(5, 12, W - 6, 12)
+        p.drawLine(5, H - 13, W - 6, H - 13)
+        for x in range(5, W - 5, 10):
+            p.drawLine(x, 12, x, 14)
+            p.drawLine(x, H - 13, x, H - 15)
+        p.setPen(mid)
+        for x0, y0, dx, dy in ((2, 2, 1, 1), (W - 3, 2, -1, 1), (2, H - 3, 1, -1), (W - 3, H - 3, -1, -1)):
+            p.drawLine(x0, y0, x0 + 5 * dx, y0)
+            p.drawLine(x0, y0, x0, y0 + 5 * dy)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setFont(self._hud_font(8, True))
+        p.setPen(mid)
+        p.drawText(QPointF(9, 9), "HALCYON")
+        word = self._status_word()
+        fm = QFontMetricsF(self.font)
+        wx = W - 9 - fm.horizontalAdvance(word)
+        p.drawText(QPointF(wx, 9), word)
+        pip = .35 + .65 * (.5 + .5 * math.sin(t * 4))
+        p.setOpacity(pip)
+        p.setBrush(mid)
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(QPointF(wx - 6, 6), 1.8, 1.8)
+        p.setOpacity(1)
+        p.setFont(self._hud_font(8))
+        label = self.footer
+        c = LEVELS.get(self.footer_level, LEVELS["info"])["mid"] if label else self.col["label"]
+        if not label:
+            label = {"think": "THINKING", "speak": "SPEAKING", "sleep": "ZZZ"}.get(self.activity, "READY")
+        p.setPen(qcol(c))
+        fm = QFontMetricsF(self.font)
+        while fm.horizontalAdvance(label) > W - 18 and len(label) > 4:
+            label = label[:-2]
+        p.drawText(QPointF(9, H - 3), label)
+
     def _draw_card(self, p):
         if not self.card or self.panel_a < .01:
             return
         lines = self.card["lines"]
         n = len(lines)
-        gap_y = 18
+        gap_y = min(22.0, 70.0 / max(1, n - 1)) if n > 1 else 0.0
         y0 = self.cy.x - (n - 1) * gap_y / 2
         bar = QColor(*[int(c) for c in self.col["bar"]])
-        p.setOpacity(self.panel_a * .7)
-        p.fillRect(QRectF(3.5, y0 - 7, 1, (n - 1) * gap_y + 14), bar)
+        p.setOpacity(self.panel_a * .8)
+        p.fillRect(QRectF(CARD_X - 5, y0 - 9, 1.5, (n - 1) * gap_y + 18), bar)
         for i, (label, value) in enumerate(lines):
             pr = ease(clamp((self.reveal_t - .25 - i * .13) / .4))
             a = pr * self.panel_a
             if a <= 0:
                 continue
-            x = 8 + (1 - pr) * -13
+            x = CARD_X + (1 - pr) * -14
             y = y0 + i * gap_y
-            fs = 9
+            fs = 11
             text = label + ": "
             while True:
-                self.font.setPixelSize(fs)
-                fm = QFontMetricsF(self.font)
-                if fm.horizontalAdvance(text + value) <= 100 or fs <= 6:
+                fm = QFontMetricsF(self._hud_font(fs))
+                if fm.horizontalAdvance(text + value) <= CARD_W or fs <= 8:
                     break
                 fs -= 1
             p.setFont(self.font)
             p.setOpacity(a)
             p.setPen(qcol(self.col["label"]))
-            p.drawText(QPointF(x, y + fs * .35), text)
+            base = round(y + fs * .36)
+            p.drawText(QPointF(round(x), base), text)
             lw = fm.horizontalAdvance(text)
-            p.setPen(QColor(230, 244, 255))
-            p.drawText(QPointF(x + lw, y + fs * .35), value)
+            p.setPen(QColor(236, 247, 255))
+            p.drawText(QPointF(round(x + lw), base), value)
         p.setOpacity(1)
-
-    def _draw_footer(self, p):
-        if not self.footer:
-            return
-        self.font.setPixelSize(8)
-        p.setFont(self.font)
-        c = LEVELS.get(self.footer_level, LEVELS["info"])["mid"]
-        p.setPen(qcol(c))
-        fm = QFontMetricsF(self.font)
-        text = self.footer
-        while fm.horizontalAdvance(text) > W - 12 and len(text) > 4:
-            text = text[:-2]
-        p.drawText(QPointF(6, H - 6), text)
 
     def _draw_z(self, p, t):
         if self.activity != "sleep":
             return
-        self.font.setPixelSize(8)
-        p.setFont(self.font)
+        p.setFont(self._hud_font(9, True))
         p.setPen(qcol(self.col["mid"]))
         for k in range(2):
             pp = (t * .35 + k * .5) % 1
-            p.setOpacity(math.sin(pp * math.pi) * .7)
-            p.drawText(QPointF(self.cx.x + 17 + pp * 11 + k * 4, self.cy.x - 13 - pp * 19), "z")
+            p.setOpacity(math.sin(pp * math.pi) * .75)
+            p.drawText(QPointF(self.cx.x + 24 + pp * 12 + k * 5, self.cy.x - 22 - pp * 18), "z")
         p.setOpacity(1)
 
     def _render(self, t):
@@ -450,17 +496,19 @@ class Eyes:
         self.out.fill(QColor(0, 0, 0))
         op = QPainter(self.out)
         op.setRenderHint(QPainter.Antialiasing)
-        op.setRenderHint(QPainter.TextAntialiasing)
-        op.setOpacity(.55)
+        op.setOpacity(.5)
         op.drawImage(0, 0, glow)
         op.setOpacity(1)
         op.drawImage(0, 0, self.layer)
-        op.scale(SS, SS)
-        self._draw_card(op)
-        self._draw_z(op, t)
-        self._draw_footer(op)
         op.end()
-        return self.out.scaled(W, H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        final = self.out.scaled(W, H, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_RGB32)
+        fp = QPainter(final)
+        fp.setRenderHint(QPainter.TextAntialiasing)
+        self._draw_hud(fp, t)
+        self._draw_card(fp)
+        self._draw_z(fp, t)
+        fp.end()
+        return final
 
 
 def image_to_565(img):

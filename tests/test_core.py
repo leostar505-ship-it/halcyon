@@ -114,14 +114,8 @@ class FakeBackend:
     def __init__(self):
         self.log = []
 
-    def snapshot(self):
-        self.log.append("snap")
-
-    def colour(self, rgb):
+    def colour(self, rgb, tint=None):
         self.log.append(rgb)
-
-    def restore(self):
-        self.log.append("restore")
 
 
 def test_lights_flow():
@@ -129,7 +123,7 @@ def test_lights_flow():
 
     class Cfg:
         def get(self, k):
-            return {"rgb_enabled": True, "rgb_brightness": 50}[k]
+            return {"rgb_enabled": True, "rgb_brightness": 50, "rgb_default": [30, 80, 255], "rgb_tweaks": {}}[k]
 
     fb = FakeBackend()
     lights = rgb.Lights(Cfg(), govee=fb)
@@ -138,7 +132,8 @@ def test_lights_flow():
     lights.restore()
     lights.restore()
     lights.shutdown()
-    assert fb.log == ["snap", (128, 0, 0), (0, 128, 128), "restore"]
+    assert fb.log[:2] == [(128, 0, 0), (0, 128, 128)]
+    assert fb.log[2:] and set(fb.log[2:]) == {(15, 40, 128)}
     assert rgb.parse_ips("192.168.8.20, 192.168.8.21;192.168.8.22") == ["192.168.8.20", "192.168.8.21", "192.168.8.22"]
     assert rgb.scale((255, 190, 0), 0) == (0, 0, 0)
 
@@ -151,7 +146,20 @@ def test_govee_payload(monkeypatch):
     g.colour((0, 255, 255))
     assert sent[0] == ("10.0.0.5", "turn", {"value": 1})
     assert sent[1][1] == "colorwc" and sent[1][2]["color"] == {"r": 0, "g": 255, "b": 255}
-    g.saved["10.0.0.5"] = {"onOff": 1, "brightness": 80, "color": {"r": 1, "g": 2, "b": 3}, "colorTemInKelvin": 0}
     sent.clear()
-    g.restore()
-    assert [c for _, c, _ in sent] == ["turn", "colorwc", "brightness"] and not g.saved
+    g.colour((0, 200, 200), lambda name: [100, 50, 100])
+    assert sent[1][2]["color"] == {"r": 0, "g": 100, "b": 200}
+
+
+def test_gain_and_default():
+    from halcyon import rgb
+    assert rgb.apply_gain((200, 100, 50), [50, 100, 0]) == (100, 100, 0)
+    assert rgb.apply_gain((1, 2, 3), None) == (1, 2, 3)
+    assert rgb.COLOURS["warn"][1] < 140
+
+
+def test_corsair_correction():
+    from halcyon import corsair
+    assert corsair.correct((255, 0, 0)) == (255, 0, 0)
+    r, g, b = corsair.correct((255, 123, 35))
+    assert g < 123 and b < 35

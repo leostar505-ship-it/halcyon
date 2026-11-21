@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
-                               QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from . import autostart
 
@@ -9,10 +10,13 @@ CLAUDE_MODELS = ["haiku", "sonnet", "opus"]
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, config, on_saved=None, parent=None):
+    def __init__(self, config, on_saved=None, parent=None, device_finder=None):
         super().__init__(parent)
         self.config = config
         self.on_saved = on_saved
+        self.device_finder = device_finder
+        self.tweaks = {k: list(v) for k, v in (config.get("rgb_tweaks") or {}).items()}
+        self.default_rgb = tuple(int(x) for x in config.get("rgb_default"))
         self.setWindowTitle("Halcyon settings")
         self.setMinimumWidth(460)
         tabs = QTabWidget()
@@ -104,9 +108,36 @@ class SettingsDialog(QDialog):
         lf.addRow(self.rgb)
         lf.addRow("Brightness", self.rgb_brightness)
         lf.addRow("Govee light addresses", self.govee)
+        self.icue = QCheckBox("Control Corsair devices through iCUE (iCUE must be running with its SDK switch on)")
+        self.icue.setChecked(bool(config.get("icue_enabled")))
+        self.swatch = QPushButton()
+        self.swatch.clicked.connect(self.pick_default)
+        self.paint_swatch()
+        self.dev = QComboBox()
+        self.dev.currentTextChanged.connect(self.load_tweak)
+        self.find = QPushButton("Find devices")
+        self.find.clicked.connect(self.find_devices)
+        dev_row = QHBoxLayout()
+        dev_row.addWidget(self.dev, 1)
+        dev_row.addWidget(self.find)
+        self.gains = []
+        gain_row = QHBoxLayout()
+        for label in ("Red", "Green", "Blue"):
+            box = QSpinBox()
+            box.setRange(0, 100)
+            box.setSuffix(" %")
+            box.setValue(100)
+            box.valueChanged.connect(self.store_tweak)
+            self.gains.append(box)
+            gain_row.addWidget(QLabel(label))
+            gain_row.addWidget(box)
         lf.addRow(self.orgb)
         lf.addRow("OpenRGB address", self.orgb_host)
         lf.addRow("OpenRGB port", self.orgb_port)
+        lf.addRow(self.icue)
+        lf.addRow("Default colour", self.swatch)
+        lf.addRow("Correct a device", dev_row)
+        lf.addRow("Colour balance", gain_row)
         tabs.addTab(lights, "Lights")
 
         note = QLabel("Voice, Claude and device changes apply after restarting Halcyon.")
@@ -118,6 +149,45 @@ class SettingsDialog(QDialog):
         layout.addWidget(tabs)
         layout.addWidget(note)
         layout.addWidget(buttons)
+
+    def paint_swatch(self):
+        r, g, b = self.default_rgb
+        self.swatch.setText("#%02X%02X%02X  (click to change)" % (r, g, b))
+        self.swatch.setStyleSheet("background:rgb(%d,%d,%d);color:%s;" % (r, g, b, "#000" if r + g + b > 380 else "#fff"))
+
+    def pick_default(self):
+        c = QColorDialog.getColor(QColor(*self.default_rgb), self)
+        if c.isValid():
+            self.default_rgb = (c.red(), c.green(), c.blue())
+            self.paint_swatch()
+
+    def find_devices(self):
+        if not self.device_finder:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            names = self.device_finder()
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.dev.clear()
+        self.dev.addItems(sorted(set(names) | set(self.tweaks)))
+
+    def load_tweak(self, name):
+        vals = self.tweaks.get(name, [100, 100, 100])
+        for box, v in zip(self.gains, vals):
+            box.blockSignals(True)
+            box.setValue(int(v))
+            box.blockSignals(False)
+
+    def store_tweak(self):
+        name = self.dev.currentText()
+        if not name:
+            return
+        vals = [b.value() for b in self.gains]
+        if vals == [100, 100, 100]:
+            self.tweaks.pop(name, None)
+        else:
+            self.tweaks[name] = vals
 
     def combo(self, items, current):
         box = QComboBox()
@@ -154,6 +224,9 @@ class SettingsDialog(QDialog):
             "openrgb_enabled": self.orgb.isChecked(),
             "openrgb_host": self.orgb_host.text().strip() or "127.0.0.1",
             "openrgb_port": self.orgb_port.value(),
+            "icue_enabled": self.icue.isChecked(),
+            "rgb_default": list(self.default_rgb),
+            "rgb_tweaks": self.tweaks,
         }
         c.data.update(values)
         c.save()

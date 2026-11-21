@@ -6,8 +6,17 @@ import struct
 import threading
 import time
 
-COLOURS = {"info": (0, 255, 255), "warn": (255, 190, 0), "alert": (255, 0, 0)}
+COLOURS = {"info": (0, 255, 255), "warn": (255, 110, 0), "alert": (255, 0, 0)}
 GOVEE_GROUP = "239.255.255.250"
+
+
+DEFAULT_COLOUR = (30, 80, 255)
+
+
+def apply_gain(rgb, gains):
+    if not gains:
+        return tuple(rgb)
+    return tuple(max(0, min(255, int(round(c * g / 100.0)))) for c, g in zip(rgb, gains))
 
 
 def scale(rgb, brightness):
@@ -21,8 +30,8 @@ def parse_ips(text):
 
 class Govee:
     def __init__(self, ips=()):
+        self.fixed = list(ips)
         self.ips = list(ips)
-        self.saved = {}
 
     def _listener(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -94,30 +103,17 @@ class Govee:
             s.close()
         return None
 
-    def snapshot(self):
-        for ip in self.discover():
-            if ip not in self.saved:
-                st = self.status(ip)
-                if st:
-                    self.saved[ip] = st
+    def names(self):
+        return ["Govee %s" % ip for ip in self.discover()]
 
-    def colour(self, rgb):
+    def colour(self, rgb, tint=None):
         for ip in self.discover():
+            c = apply_gain(rgb, tint("Govee %s" % ip) if tint else None)
             self.send(ip, "turn", {"value": 1})
-            self.send(ip, "colorwc", {"color": {"r": rgb[0], "g": rgb[1], "b": rgb[2]}, "colorTemInKelvin": 0})
+            self.send(ip, "colorwc", {"color": {"r": c[0], "g": c[1], "b": c[2]}, "colorTemInKelvin": 0})
 
-    def restore(self):
-        for ip, st in list(self.saved.items()):
-            if not st.get("onOff", 1):
-                self.send(ip, "turn", {"value": 0})
-                continue
-            kelvin = st.get("colorTemInKelvin", 0)
-            c = st.get("color") or {"r": 255, "g": 255, "b": 255}
-            self.send(ip, "turn", {"value": 1})
-            self.send(ip, "colorwc", {"color": c, "colorTemInKelvin": kelvin})
-            if "brightness" in st:
-                self.send(ip, "brightness", {"value": st["brightness"]})
-        self.saved.clear()
+    def refresh(self):
+        self.ips = []
 
 
 class OpenRGB:
@@ -125,7 +121,6 @@ class OpenRGB:
         self.host = host
         self.port = port
         self.client = None
-        self.saved = {}
 
     def connect(self):
         if self.client is not None:
@@ -139,44 +134,37 @@ class OpenRGB:
             return False
 
     def devices(self):
+        self.close()
         return list(self.client.devices) if self.connect() else []
 
-    def snapshot(self):
-        if not self.connect():
-            return
-        for d in self.client.devices:
-            if d.name not in self.saved:
-                try:
-                    self.saved[d.name] = list(d.colors)
-                except Exception:
-                    pass
+    def names(self):
+        out = [d.name for d in self.devices()]
+        self.close()
+        return out
 
-    def colour(self, rgb):
-        if not self.connect():
-            return
+    def colour(self, rgb, tint=None):
         from openrgb.utils import RGBColor
-        c = RGBColor(*rgb)
-        for d in self.client.devices:
+        for attempt in (1, 2):
+            self.close()
+            if not self.connect():
+                time.sleep(0.4)
+                continue
             try:
-                try:
-                    d.set_mode("direct")
-                except Exception:
-                    pass
-                d.set_color(c)
+                for d in list(self.client.devices):
+                    c = apply_gain(rgb, tint(d.name) if tint else None)
+                    try:
+                        d.set_color(RGBColor(*c))
+                    except Exception:
+                        try:
+                            d.set_mode("direct")
+                            d.set_color(RGBColor(*c))
+                        except Exception:
+                            pass
+                return
             except Exception:
-                pass
-
-    def restore(self):
-        if not self.client:
-            return
-        for d in self.client.devices:
-            cols = self.saved.get(d.name)
-            if cols:
-                try:
-                    d.set_colors(cols)
-                except Exception:
-                    pass
-        self.saved.clear()
+                continue
+            finally:
+                self.close()
 
     def close(self):
         try:
@@ -191,6 +179,9 @@ class NullLights:
     def show(self, level):
         pass
 
+    def apply_default(self):
+        pass
+
     def restore(self):
         pass
 
@@ -199,15 +190,19 @@ class NullLights:
 
 
 class Lights:
-    def __init__(self, config, govee=None, openrgb=None):
+    def __init__(self, config, govee=None, openrgb=None, corsair=None):
         self.config = config
         self.backends = []
-        if govee is not None or openrgb is not None:
-            self.backends = [b for b in (govee, openrgb) if b is not None]
+        explicit = [b for b in (govee, openrgb, corsair) if b is not None]
+        if explicit:
+            self.backends = explicit
         else:
             self.backends.append(Govee(parse_ips(config.get("govee_ips"))))
             if config.get("openrgb_enabled"):
                 self.backends.append(OpenRGB(config.get("openrgb_host"), int(config.get("openrgb_port"))))
+            if config.get("icue_enabled"):
+                from .corsair import Corsair
+                self.backends.append(Corsair())
         self.q = queue.Queue()
         self.active = False
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -215,6 +210,17 @@ class Lights:
 
     def enabled(self):
         return bool(self.config.get("rgb_enabled"))
+
+    def default_colour(self):
+        try:
+            v = tuple(int(x) for x in self.config.get("rgb_default"))
+            return v if len(v) == 3 else DEFAULT_COLOUR
+        except (TypeError, ValueError):
+            return DEFAULT_COLOUR
+
+    def tint(self, name):
+        tweaks = self.config.get("rgb_tweaks") or {}
+        return tweaks.get(name)
 
     def show(self, level):
         if self.enabled():
@@ -224,14 +230,33 @@ class Lights:
         if self.enabled():
             self.q.put(("restore", None))
 
+    def apply_default(self):
+        if self.enabled():
+            self.q.put(("default", None))
+
+    def device_names(self):
+        out = []
+        for b in self.backends:
+            if hasattr(b, "names"):
+                try:
+                    out.extend(b.names())
+                except Exception:
+                    pass
+        return out
+
     def close(self):
         self.q.put(("close", None))
 
     def shutdown(self):
         if self.enabled():
-            self.q.put(("restore", None))
+            self.q.put(("default", None))
         self.q.put(("close", None))
-        self.thread.join(4)
+        self.thread.join(6)
+
+    def paint(self, rgb):
+        c = scale(rgb, self.config.get("rgb_brightness"))
+        for b in self.backends:
+            self.safe(b.colour, c, self.tint)
 
     def loop(self):
         while True:
@@ -246,15 +271,13 @@ class Lights:
                 return
             try:
                 if op == "show":
-                    rgb = scale(COLOURS.get(arg, COLOURS["info"]), self.config.get("rgb_brightness"))
-                    for b in self.backends:
-                        if not self.active:
-                            self.safe(b.snapshot)
-                        self.safe(b.colour, rgb)
+                    self.paint(COLOURS.get(arg, COLOURS["info"]))
                     self.active = True
                 elif op == "restore" and self.active:
-                    for b in self.backends:
-                        self.safe(b.restore)
+                    self.paint(self.default_colour())
+                    self.active = False
+                elif op == "default":
+                    self.paint(self.default_colour())
                     self.active = False
             except Exception:
                 pass
@@ -298,4 +321,18 @@ def scan_report(config):
         out.append("")
         out.append("GPU lighting visible to OpenRGB: %s" % ("yes" if gpu else "no"))
         o.close()
+    out.append("")
+    try:
+        from .corsair import Corsair
+        c = Corsair()
+        cdevs = c.devices()
+        if cdevs:
+            out.append("iCUE devices found: %d" % len(cdevs))
+            for d in cdevs:
+                out.append("  %s  leds %d" % (d.model, d.led_count))
+        else:
+            out.append("iCUE: not reachable or no devices. %s" % (c.error or ""))
+        c.close()
+    except Exception as exc:
+        out.append("iCUE check failed: %s" % exc)
     return "\n".join(out) + "\n"
