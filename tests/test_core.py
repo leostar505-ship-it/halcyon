@@ -118,6 +118,18 @@ class FakeBackend:
         self.log.append(rgb)
 
 
+def test_wake_prefix():
+    from halcyon.voice_in import wake_check
+    pre = ["hey", "ok", "yo"]
+    assert wake_check("Hey Halcyon open chrome", WAKE, True, pre) == ("ok", "open chrome")
+    assert wake_check("OK halcyon", WAKE, True, pre) == ("ok", "")
+    assert wake_check("Yo, Halcyon what time is it", WAKE, True, pre) == ("ok", "what time is it")
+    assert wake_check("Halcyon open chrome", WAKE, True, pre)[0] == "noprefix"
+    assert match_wake("Halcyon open chrome", WAKE, True, pre) is None
+    assert match_wake("Halcyon open chrome", WAKE) == "open chrome"
+    assert wake_check("all season tyres", WAKE, True, pre) == (None, None)
+
+
 def test_lights_flow():
     from halcyon import rgb
 

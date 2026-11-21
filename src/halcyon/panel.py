@@ -11,7 +11,7 @@ import urllib.request
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
-from PySide6.QtWidgets import (QColorDialog, QComboBox, QSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import EXPANSION, NAME, __version__
@@ -464,10 +464,32 @@ class Panel(QWidget):
             b = QPushButton(sample)
             b.clicked.connect(lambda _=False, s=sample: self.phrase.setText(s))
             right.addWidget(b)
-        right.addStretch(1)
+        self.prefix_box = QCheckBox("Require hey, ok or yo before Halcyon")
+        self.prefix_box.setChecked(bool(self.config.get("wake_prefix_required")))
+        self.prefix_box.toggled.connect(self.set_prefix_required)
+        right.addWidget(self.prefix_box)
+        right.addWidget(row_label("Wake history (what the microphone heard)", "h"))
+        self.wake_hist = QPlainTextEdit()
+        self.wake_hist.setReadOnly(True)
+        right.addWidget(self.wake_hist, 1)
         row.addLayout(right, 1)
         lay.addLayout(row, 1)
+        QTimer(self, interval=2000, timeout=self.refresh_wake_hist).start()
         return w
+
+    def set_prefix_required(self, on):
+        self.config.set("wake_prefix_required", bool(on))
+        self.try_phrase(self.phrase.text())
+
+    def refresh_wake_hist(self):
+        from .config import config_dir
+        try:
+            lines = (config_dir() / "wake_log.txt").read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+        except OSError:
+            lines = []
+        text = "\n".join(reversed(lines)) or "Nothing yet. Say hey halcyon."
+        if text != self.wake_hist.toPlainText():
+            self.wake_hist.setPlainText(text)
 
     def page_lights(self):
         w, lay = self.page("Lights", "Default colour and per-device colour balance.")
@@ -906,7 +928,8 @@ class Panel(QWidget):
             self.result.setText("Type something.")
             self.result.setStyleSheet("")
             return
-        rest = match_wake(text, self.config.get("wake_words"))
+        rest = match_wake(text, self.config.get("wake_words"), bool(self.config.get("wake_prefix_required")),
+                          self.config.get("wake_prefixes"))
         if rest is None:
             self.result.setText("Would NOT wake Halcyon.")
             self.result.setStyleSheet("color:#ff6b6b;")

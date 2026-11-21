@@ -13,16 +13,17 @@ RATE = 16000
 LISTEN_TIMEOUT = 7.0
 DEAF_AFTER_WAKE = 0.35
 MAX_COMMAND_CHUNKS = 48
-LEAD_INS = {"hey", "hi", "hello", "okay", "ok", "yo", "oi"}
+LEAD_INS = {"hey", "hi", "hello", "okay", "ok", "yo", "oi", "hay", "heya", "hiya", "hei", "o", "k"}
 CANCEL_RE = re.compile(r"^(never ?mind|cancel|forget it|stop)\b", re.I)
 
 
-def match_wake(text, wake_words):
+def wake_check(text, wake_words, require_prefix=False, prefixes=None):
+    leads = {p.lower() for p in prefixes} if prefixes else LEAD_INS
     tokens = list(re.finditer(r"[A-Za-z']+", text))
     if not tokens:
-        return None
+        return None, None
     start = 0
-    while start < len(tokens) and tokens[start].group(0).lower() in LEAD_INS:
+    while start < len(tokens) and tokens[start].group(0).lower() in leads:
         start += 1
     targets = [w.replace(" ", "").lower() for w in wake_words]
     best = (0.0, 0)
@@ -34,10 +35,31 @@ def match_wake(text, wake_words):
             score = 1.0 if head == target else difflib.SequenceMatcher(None, head, target).ratio()
             if score >= .74 and score > best[0] and head[0] == target[0]:
                 best = (score, n)
-    if best[1]:
-        end = tokens[start + best[1] - 1].end()
-        return text[end:].lstrip(" ,.:;!?-")
-    return None
+    if not best[1]:
+        return None, None
+    end = tokens[start + best[1] - 1].end()
+    rest = text[end:].lstrip(" ,.:;!?-")
+    if require_prefix and start == 0:
+        return "noprefix", rest
+    return "ok", rest
+
+
+def match_wake(text, wake_words, require_prefix=False, prefixes=None):
+    kind, rest = wake_check(text, wake_words, require_prefix, prefixes)
+    return rest if kind == "ok" else None
+
+
+def log_wake(kind, text):
+    try:
+        from .config import config_dir
+        path = config_dir() / "wake_log.txt"
+        if path.exists() and path.stat().st_size > 100000:
+            path.write_text("")
+        label = "WOKE   " if kind == "ok" else "IGNORED (no hey/ok/yo before it)"
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("%s  %s  heard: %s\n" % (time.strftime("%H:%M:%S"), label, text.strip()[:160]))
+    except Exception:
+        pass
 
 
 class Listener:
@@ -158,8 +180,12 @@ class Listener:
                     except W.WhisperError as exc:
                         self.on_status("Voice engine problem: %s" % exc)
                         continue
-                    rest = match_wake(text, words)
-                    if rest is None:
+                    kind, rest = wake_check(text, words, bool(self.config.get("wake_prefix_required")),
+                                            self.config.get("wake_prefixes"))
+                    if kind is None:
+                        continue
+                    log_wake(kind, text)
+                    if kind != "ok":
                         continue
                     self.on_wake()
                     if len(rest.split()) >= 2 or CANCEL_RE.match(rest):
