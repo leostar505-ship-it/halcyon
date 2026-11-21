@@ -115,6 +115,7 @@ class Server:
 
     def start(self, log=lambda s: None):
         if self.running():
+            log("Chatterbox is already starting or running. Watch the log below; the first start downloads the model.")
             return True
         script = server_script()
         if not installed() or not script:
@@ -124,8 +125,41 @@ class Server:
         logf = open(root() / "server.log", "a", encoding="utf-8")
         self.proc = subprocess.Popen([str(venv_python()), str(script), "--device", "cpu", "--port", port, "--threads", "4"],
                                      stdout=logf, stderr=logf, creationflags=FLAGS)
-        log("Chatterbox is starting. The first start loads the model and can take a minute or two.")
+        log("Chatterbox is starting. The first start downloads the model (about 3 GB) and can take several minutes.")
+        import threading
+        threading.Thread(target=self.watch, args=(log,), daemon=True).start()
         return True
+
+    def tail(self, n=6):
+        try:
+            lines = (root() / "server.log").read_text(encoding="utf-8", errors="replace").strip().splitlines()
+            return lines[-n:]
+        except OSError:
+            return []
+
+    def watch(self, log, limit=900):
+        import time
+        end = time.monotonic() + limit
+        mark = 0
+        while time.monotonic() < end:
+            if self.proc is None:
+                return False
+            if self.proc.poll() is not None:
+                log("Chatterbox stopped with code %s. Last lines of server.log:" % self.proc.returncode)
+                for line in self.tail():
+                    log("  " + line[:160])
+                self.proc = None
+                return False
+            if self.healthy():
+                log("Chatterbox is ready.")
+                return True
+            mark += 1
+            if mark % 6 == 0:
+                lines = self.tail(1)
+                log("Chatterbox still loading... %s" % (lines[0][:120] if lines else "(no output yet)"))
+            time.sleep(5)
+        log("Chatterbox did not become ready in 15 minutes. Check %s" % (root() / "server.log"))
+        return False
 
     def stop(self):
         if self.proc is not None:
