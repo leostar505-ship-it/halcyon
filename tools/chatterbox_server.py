@@ -4,6 +4,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import perth
 import torch
 import torchaudio as ta
 from chatterbox.tts import ChatterboxTTS
@@ -63,6 +64,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global model
+    if getattr(perth, "PerthImplicitWatermarker", None) is None:
+        perth.PerthImplicitWatermarker = perth.DummyWatermarker
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--port", type=int, default=8123)

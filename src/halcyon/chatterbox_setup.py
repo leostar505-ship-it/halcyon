@@ -116,6 +116,7 @@ def install(log, clean=False):
     if stream([vp, "-m", "pip", "install", "chatterbox-tts"], log) != 0:
         log("Install failed. See the lines above.")
         return False
+    stream([vp, "-m", "pip", "install", "setuptools<81"], log)
     (root() / "ready").write_text("ok")
     log("Chatterbox installed.")
     return True
