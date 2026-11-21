@@ -159,6 +159,7 @@ Choose one route:
 
 Set screenshot to true only when the task depends on what is currently on the user's screen.
 Never choose any route that spends money or buys anything.
+The text comes from speech recognition and is often misheard. If a phrase sounds like an app or game name (for example \"for at night\" means Fortnite), use the real name in the action args.
 
 Actions:
 {actions}

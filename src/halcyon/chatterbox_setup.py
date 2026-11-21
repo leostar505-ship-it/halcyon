@@ -122,6 +122,17 @@ def install(log, clean=False):
     return True
 
 
+def has_amd_gpu():
+    if sys.platform != "win32":
+        return False
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_VideoController).Name"],
+                           capture_output=True, text=True, creationflags=FLAGS, timeout=20)
+        return any(w in (r.stdout or "").lower() for w in ("radeon", "amd"))
+    except Exception:
+        return False
+
+
 AMD_INDEX = "https://repo.amd.com/rocm/whl-multi-arch/"
 
 
@@ -161,7 +172,7 @@ class Server:
             return False
         port = self.config.get("chatterbox_url").rsplit(":", 1)[-1].strip("/")
         logf = open(root() / "server.log", "a", encoding="utf-8")
-        self.proc = subprocess.Popen([str(venv_python()), str(script), "--device", self.config.get("chatterbox_device") or "cpu", "--port", port, "--threads", "4"],
+        self.proc = subprocess.Popen([str(venv_python()), str(script), "--device", "cpu" if self.config.get("chatterbox_force_cpu") else "cuda", "--port", port, "--threads", "4"],
                                      stdout=logf, stderr=logf, creationflags=FLAGS)
         log("Chatterbox is starting. The first start downloads the model (about 3 GB) and can take several minutes.")
         import threading
@@ -190,6 +201,8 @@ class Server:
                 return False
             if self.healthy():
                 log("Chatterbox is ready.")
+                if any("GPU not available" in ln for ln in self.tail(40)):
+                    log("It is running on the CPU, which is slow. Press 'Use my AMD GPU' to install the GPU version.")
                 return True
             mark += 1
             if mark % 6 == 0:

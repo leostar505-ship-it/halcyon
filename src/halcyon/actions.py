@@ -125,6 +125,25 @@ def steam_games():
     return list(games.values())
 
 
+def sound_key(s):
+    s = re.sub(r"[^a-z0-9]", "", str(s).lower())
+    for a, b in (("ight", "it"), ("igh", "i"), ("ite", "it"), ("ph", "f"), ("ck", "k")):
+        s = s.replace(a, b)
+    return s
+
+
+def sounds_like(query, name, threshold=0.8):
+    q = sound_key(query)
+    n = sound_key(name)
+    if len(q) < 4 or not n:
+        return False
+    for w in range(max(3, len(q) - 2), len(q) + 3):
+        for i in range(0, max(1, len(n) - w + 1)):
+            if difflib.SequenceMatcher(None, q, n[i:i + w]).ratio() >= threshold:
+                return True
+    return False
+
+
 def best_match(query, names):
     q = _norm(query)
     if not q:
@@ -253,6 +272,18 @@ def resolve_app(ctx, name):
     key = best_match(name, list(epic.keys()))
     if key:
         return ("epic", epic[key]["uri"], key)
+    for cand in apps:
+        if sounds_like(name, cand):
+            return ("path", apps[cand], cand)
+    for cand in menu:
+        if sounds_like(name, cand):
+            return ("path", menu[cand], cand)
+    for cand in by_name:
+        if sounds_like(name, cand):
+            return ("steam", by_name[cand]["id"], cand)
+    for cand in epic:
+        if sounds_like(name, cand):
+            return ("epic", epic[cand]["uri"], cand)
     scanned = resolve_by_scan(name)
     if scanned:
         ctx_hits = scanned[3]
@@ -340,6 +371,15 @@ def find_procs(ctx, name):
         except Exception:
             continue
         if pn and (q == pn or q in pn or pn in q and len(pn) > 3):
+            matches.append(p)
+    if matches:
+        return matches
+    for p in psutil.process_iter(["name", "memory_info"]):
+        try:
+            pn = os.path.splitext(p.info["name"] or "")[0]
+        except Exception:
+            continue
+        if pn and sounds_like(name, pn):
             matches.append(p)
     return matches
 

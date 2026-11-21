@@ -386,3 +386,22 @@ def test_lights_queue_keeps_only_latest_paint():
     for op in (("show", "warn"), ("show", "info"), ("restore", None), ("show", "alert")):
         L.q.put(op)
     assert L.next_op() == ("show", "alert")
+
+
+def test_sounds_like_fortnite():
+    from halcyon import actions
+    assert actions.sounds_like("for at night", "FortniteClient-Win64-Shipping")
+    assert actions.sounds_like("for at night", "Fortnite")
+    assert not actions.sounds_like("for at night", "Discord")
+
+
+def test_close_finds_misheard_name(monkeypatch):
+    from halcyon import actions
+
+    class P:
+        def __init__(self, n):
+            self.info = {"name": n, "memory_info": None}
+
+    monkeypatch.setattr(actions.psutil, "process_iter", lambda attrs=None: [P("chrome.exe"), P("FortniteClient-Win64-Shipping.exe")])
+    found = actions.find_procs(None, "for at night")
+    assert [p.info["name"] for p in found] == ["FortniteClient-Win64-Shipping.exe"]

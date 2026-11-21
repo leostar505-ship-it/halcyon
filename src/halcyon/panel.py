@@ -865,6 +865,8 @@ class Panel(QWidget):
                 if again and self.chatterbox is not None:
                     self.chatterbox.stop()
                 ok = CB.install(self.cb_log, clean=again)
+                if ok and CB.has_amd_gpu():
+                    CB.install_gpu(self.cb_log)
                 if ok and self.chatterbox is not None:
                     self.chatterbox.start(self.cb_log)
             except Exception as exc:
