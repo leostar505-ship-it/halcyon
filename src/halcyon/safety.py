@@ -79,3 +79,51 @@ def allow_pattern(name, tool_input):
 def denial_is_spend(name, tool_input):
     blob = "%s %s" % (name, tool_input)
     return bool(SPEND_RE.search(blob)) or bool(SPEND_CODE_RE.search(blob))
+
+
+SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\||&)\s*")
+WRAPPER_RE = re.compile(r"^(?:powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?)\s+(?:-\w+\s+)*(?:/c\s+|-command\s+|-c\s+)?", re.I)
+HIGH_RE = re.compile(
+    r"^(?:del|erase|rm|rmdir|rd|remove-item|ri|format|diskpart|cipher|clear-disk|remove-partition|sdelete|shred|dd|"
+    r"truncate|takeown|icacls|attrib|reg\s+delete|remove-itemproperty|clear-recyclebin|wipefs|mkfs)\b", re.I)
+MEDIUM_RE = re.compile(
+    r"^(?:shutdown|restart-computer|stop-computer|logoff|taskkill|stop-process|kill|pkill|net|reg|netsh|sc|schtasks|"
+    r"set-executionpolicy|set-itemproperty|new-itemproperty|winget|choco|pip|npm|msiexec|bcdedit|wmic|invoke-expression|iex|"
+    r"curl|wget|iwr|invoke-webrequest|move|mv|ren|rename|move-item|set-content|out-file|copy|cp|xcopy|robocopy|"
+    r"new-item|mkdir|md|sudo|runas|start-service|stop-service|restart-service|disable-\w+|enable-\w+|set-\w+)\b", re.I)
+LOW_RE = re.compile(
+    r"^(?:start|start-process|explorer|echo|write-output|write-host|dir|ls|cd|pwd|type|cat|get-\w+|where|whoami|hostname|"
+    r"ipconfig|ping|date|time|tasklist|systeminfo|ver|vol|tree|findstr|select-string|more|help|set|cls|clear|"
+    r"python|py|code|notepad|calc|mspaint|msedge|chrome|firefox|steam|spotify|discord|open|xdg-open)\b", re.I)
+
+REASONS = {"high": "That could delete or destroy data.", "medium": "That changes something on this PC."}
+
+
+def assess_command(cmd):
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return "low"
+    worst = "low"
+    order = {"low": 0, "medium": 1, "high": 2}
+    for seg in SPLIT_RE.split(cmd):
+        seg = seg.strip().strip('"').strip()
+        if not seg:
+            continue
+        seg = WRAPPER_RE.sub("", seg).strip().strip('"').strip()
+        if HIGH_RE.search(seg):
+            level = "high"
+        elif re.search(r"\s>>?\s*\S", seg) or MEDIUM_RE.search(seg):
+            level = "medium"
+        elif LOW_RE.search(seg) or re.match(r"^[\w.:\\/ -]+\.(?:exe|lnk|url|bat)\b", seg, re.I):
+            level = "low"
+        else:
+            level = "medium"
+        if re.search(r"remove-item|\bdel\b|\brm\b|\bformat\b", seg, re.I):
+            level = "high"
+        if order[level] > order[worst]:
+            worst = level
+    return worst
+
+
+def risk_reason(level):
+    return REASONS.get(level, "")

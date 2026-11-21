@@ -386,3 +386,15 @@ def test_lights_queue_keeps_only_latest_paint():
     for op in (("show", "warn"), ("show", "info"), ("restore", None), ("show", "alert")):
         L.q.put(op)
     assert L.next_op() == ("show", "alert")
+
+
+def test_command_risk_levels():
+    from halcyon import safety
+    assert safety.assess_command("start com.epicgames.launcher://apps/Fortnite?action=launch") == "low"
+    assert safety.assess_command("powershell -Command Start-Process 'C:\\Games\\a.exe'") == "low"
+    assert safety.assess_command("dir") == "low"
+    assert safety.assess_command("shutdown /s /t 0") == "medium"
+    assert safety.assess_command("pip install requests") == "medium"
+    assert safety.assess_command("somethingweird") == "medium"
+    assert safety.assess_command("Remove-Item C:\\x.txt") == "high"
+    assert safety.assess_command("whoami && del a.txt") == "high"

@@ -125,12 +125,14 @@ class Controller:
     def settle(self, expr="neutral", delay=2.0):
         self.screen.eyes.after(delay, lambda: (self.screen.set_expression(expr), self.screen.set_level("info")))
 
-    def ask_yes_no(self, question, bullet):
+    def ask_yes_no(self, question, bullet, level="warn", expr="curious"):
         self.cues.play("ask")
         jid = self.hud.job_add(bullet, "ask")
-        self.hud.level("warn")
-        self.screen.set_level("warn")
-        self.screen.set_expression("curious")
+        self.hud.level(level)
+        self.screen.set_level(level)
+        self.screen.set_expression(expr)
+        if level == "alert":
+            self.light_on("alert")
         self.screen.footer("Say yes or no", "warn")
         self.say(question)
         self.hud.state("listening")
@@ -154,6 +156,8 @@ class Controller:
         self.hud.level("info")
         self.screen.set_level("info")
         self.screen.footer("")
+        if level == "alert":
+            self.light_off()
         self.hud.job_set(jid, bullet + (" - approved" if result else " - declined"), "done" if result else "fail")
         self.history.add("User", "yes" if result else "no")
         return bool(result)
@@ -300,13 +304,24 @@ class Controller:
         if not info:
             self.run_task(decision.get("task") or str(name), False)
             return
-        if info.get("confirm") and not decision.get("confirmed"):
+        risk = "medium" if info.get("confirm") else "low"
+        if name == "run_command":
+            risk = safety.assess_command(str(args.get("command") or ""))
+        if decision.get("confirmed") and risk != "high":
+            risk = "low"
+        if risk != "low":
             self.screen.set_activity("none")
             self.hud.send("mini", True)
             self.hud.job_start()
             subject = str(args.get("app") or args.get("command") or "")
             what = ("%s %s" % (name.replace("_", " "), subject)).strip()
-            ok = self.ask_yes_no("Shall I %s? Say yes or no." % what.strip(), what.strip().capitalize() + "?")
+            if risk == "high":
+                self.screen.set_expression("worried")
+                self.say("Careful, sir. %s" % safety.risk_reason("high"))
+                ok = self.ask_yes_no("Are you sure you want me to %s? Say yes or no." % what, what.capitalize() + "?",
+                                     level="alert", expr="worried")
+            else:
+                ok = self.ask_yes_no("Shall I %s? Say yes or no." % what.strip(), what.strip().capitalize() + "?")
             if not ok:
                 self.screen.set_expression("neutral")
                 self.say("Cancelled, sir.")

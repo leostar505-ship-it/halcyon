@@ -251,3 +251,22 @@ def test_guess_is_confirmed_before_running(env, monkeypatch):
     c.run_command("close zzqxv")
     assert asked == ["Did you mean Fortnite, sir? Shall I close it? Say yes or no."]
     assert voice.spoken[-1] == "Cancelled, sir."
+
+
+def test_low_risk_command_runs_without_asking(env):
+    c, hud, screen, voice, clip = env
+    asked = []
+    c.ask_yes_no = lambda *a, **k: asked.append(a) or True
+    c.registry.run = lambda name, ctx, args: {"say": "Done, sir."}
+    c.run_action({"route": "action", "action": "run_command", "args": {"command": "echo hello"}})
+    assert asked == [] and voice.spoken[-1] == "Done, sir."
+
+
+def test_high_risk_command_warns_in_red_then_asks(env):
+    c, hud, screen, voice, clip = env
+    asked = []
+    c.ask_yes_no = lambda q, b, level="warn", expr="curious": asked.append((q, level, expr)) or False
+    c.run_action({"route": "action", "action": "run_command", "args": {"command": "Remove-Item C:\\a.txt"}})
+    assert voice.spoken[0].startswith("Careful, sir.")
+    assert asked and asked[0][1] == "alert" and asked[0][2] == "worried"
+    assert voice.spoken[-1] == "Cancelled, sir."
