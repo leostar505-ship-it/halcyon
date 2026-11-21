@@ -88,12 +88,17 @@ jobs:
         shell: pwsh
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.v }}" installer.iss'
 
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage | Out-Null
+          Copy-Item installer_output/Halcyon-Setup.exe stage/
+          Copy-Item portable/Halcyon-Portable.exe stage/
+
       - uses: actions/upload-artifact@v4
         with:
           name: Halcyon
-          path: |
-            installer_output/Halcyon-Setup.exe
-            portable/Halcyon-Portable.exe
+          path: stage/*.exe
 
     outputs:
       version: ${{ steps.ver.outputs.v }}
