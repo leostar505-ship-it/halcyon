@@ -884,6 +884,8 @@ class Panel(QWidget):
             try:
                 self.voice.speak("Hello. This is Halcyon. Voice test complete.", on_amp=lambda v: self.bus.amp.emit(v))
                 self.bus.log.emit("Done, engine: %s" % self.voice.engine_name)
+                if self.voice.engine_name != "chatterbox" and getattr(self.voice, "last_error", ""):
+                    self.bus.log.emit(self.voice.last_error)
             except Exception as exc:
                 self.bus.log.emit("Voice failed: %s" % exc)
             self.bus.amp.emit(0)

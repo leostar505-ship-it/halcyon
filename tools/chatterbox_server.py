@@ -22,7 +22,7 @@ def synth(text):
         torch.manual_seed(SEED)
         wav = model.generate(text, exaggeration=EXAGGERATION, cfg_weight=CFG_WEIGHT)
         buf = io.BytesIO()
-        ta.save(buf, wav.cpu(), model.sr, format="wav")
+        ta.save(buf, wav.cpu(), model.sr, format="wav", encoding="PCM_S", bits_per_sample=16)
         return buf.getvalue()
 
 

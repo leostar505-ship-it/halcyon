@@ -1,6 +1,7 @@
 import io
 import json
 import math
+import queue
 import subprocess
 import sys
 import threading
@@ -20,9 +21,53 @@ SAPI_SCRIPT = (
     "if($n -match 'George|Ryan|Hazel|Susan'){ $pick=$n; if($n -match 'George|Ryan'){break} }};"
     "if($pick){$s.SelectVoice($pick)};"
     "$s.Rate=0;"
+    "[Console]::Out.WriteLine('R');[Console]::Out.Flush();"
+    "while(($l=[Console]::In.ReadLine()) -ne $null){"
+    "if($l.Trim() -eq ''){[Console]::Out.WriteLine('D');[Console]::Out.Flush();continue};"
     "[Console]::Out.WriteLine('S');[Console]::Out.Flush();"
-    "$s.Speak([Console]::In.ReadToEnd())"
+    "$s.Speak($l);"
+    "[Console]::Out.WriteLine('D');[Console]::Out.Flush()}"
 )
+
+
+def ensure_pcm16(data):
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            w.getnframes()
+        return data
+    except (wave.Error, EOFError):
+        pass
+    pos = 12
+    fmt = None
+    raw = b""
+    while pos + 8 <= len(data):
+        cid = data[pos:pos + 4]
+        size = int.from_bytes(data[pos + 4:pos + 8], "little")
+        body = data[pos + 8:pos + 8 + size]
+        if cid == b"fmt ":
+            fmt = (int.from_bytes(body[0:2], "little"), int.from_bytes(body[2:4], "little"),
+                   int.from_bytes(body[4:8], "little"), int.from_bytes(body[14:16], "little"))
+        elif cid == b"data":
+            raw = body
+            break
+        pos += 8 + size + (size & 1)
+    if fmt is None or not raw:
+        raise ValueError("unreadable audio from Chatterbox")
+    tag, ch, rate, bits = fmt
+    if bits == 32:
+        arr = np.frombuffer(raw[:len(raw) // 4 * 4], dtype="<f4")
+        pcm = (np.clip(arr, -1.0, 1.0) * 32767).astype("<i2")
+    elif bits == 16:
+        pcm = np.frombuffer(raw[:len(raw) // 2 * 2], dtype="<i2")
+    else:
+        raise ValueError("unsupported audio format from Chatterbox: %d bit" % bits)
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm.tobytes())
+    return out.getvalue()
 
 
 def statement(text):
@@ -39,6 +84,7 @@ class Voice:
         self.checked = 0.0
         self.engine_name = "none"
         self.start_hook = None
+        self.last_error = ""
 
     def set_muted(self, value):
         self.muted = bool(value)
@@ -52,6 +98,7 @@ class Voice:
                 p.terminate()
             except Exception:
                 pass
+            self.proc = None
         if sys.platform == "win32":
             try:
                 import winsound
@@ -61,7 +108,7 @@ class Voice:
 
     def _chatterbox_up(self):
         now = time.monotonic()
-        if self.chatterbox_ok is not None and now - self.checked < 30:
+        if self.chatterbox_ok is not None and now - self.checked < (30 if self.chatterbox_ok else 3):
             return self.chatterbox_ok
         self.checked = now
         try:
@@ -84,8 +131,9 @@ class Voice:
             try:
                 self._speak_chatterbox(text, on_amp)
                 return
-            except Exception:
+            except Exception as exc:
                 self.chatterbox_ok = False
+                self.last_error = "Chatterbox failed: %s" % exc
         if sys.platform == "win32":
             try:
                 self._speak_sapi(text, on_amp)
@@ -117,7 +165,7 @@ class Voice:
                                      data=json.dumps({"text": text}).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as resp:
-            audio = resp.read()
+            audio = ensure_pcm16(resp.read())
         if self.stop_flag.is_set():
             return
         with wave.open(io.BytesIO(audio)) as w:
@@ -150,28 +198,58 @@ class Voice:
         finally:
             done.set()
 
-    def _speak_sapi(self, text, on_amp):
-        self.engine_name = "sapi"
-        self.proc = subprocess.Popen(
+    def _sapi_start(self):
+        if self.proc is not None and self.proc.poll() is None:
+            return self.proc
+        proc = subprocess.Popen(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", SAPI_SCRIPT],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=FLAGS)
-        proc = self.proc
+        lines = queue.Queue()
 
-        def wait_start():
+        def reader():
             try:
-                proc.stdout.readline()
-                self.started()
+                for line in proc.stdout:
+                    lines.put(line.decode("utf-8", "replace").strip())
             except Exception:
                 pass
-        threading.Thread(target=wait_start, daemon=True).start()
+            lines.put(None)
+        threading.Thread(target=reader, daemon=True).start()
+        self.proc = proc
+        self.sapi_lines = lines
+        return proc
+
+    def warm_up(self):
+        if sys.platform == "win32" and not self.muted:
+            try:
+                self._sapi_start()
+            except Exception:
+                pass
+
+    def _speak_sapi(self, text, on_amp):
+        self.engine_name = "sapi"
+        proc = self._sapi_start()
+        lines = self.sapi_lines
         try:
-            self.proc.stdin.write(text.encode("utf-8"))
-            self.proc.stdin.close()
+            proc.stdin.write((" ".join(text.split()) + "\n").encode("utf-8"))
+            proc.stdin.flush()
         except OSError:
-            pass
+            self.proc = None
+            raise
         n = 0
-        while self.proc.poll() is None and not self.stop_flag.is_set():
-            n += 1
-            on_amp(.35 + .65 * abs(math.sin(n * 1.7)) * abs(math.sin(n * .63 + 1)))
-            time.sleep(.09)
-        self.proc = None
+        while not self.stop_flag.is_set():
+            try:
+                line = lines.get(timeout=.09)
+            except queue.Empty:
+                line = ""
+            if line is None:
+                self.proc = None
+                break
+            if line == "S":
+                self.started()
+            elif line == "D":
+                break
+            elif line == "R":
+                continue
+            elif proc.poll() is None:
+                n += 1
+                on_amp(.35 + .65 * abs(math.sin(n * 1.7)) * abs(math.sin(n * .63 + 1)))

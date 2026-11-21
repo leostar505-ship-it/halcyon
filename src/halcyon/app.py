@@ -106,6 +106,8 @@ def main(argv=None):
     controller.attach_listener(listener)
     from .chatterbox_setup import Server as ChatterboxServer, installed as chatterbox_installed
     chatterbox = ChatterboxServer(config)
+    if not selftest:
+        threading.Thread(target=voice.warm_up, daemon=True).start()
     if not selftest and chatterbox_installed():
         threading.Thread(target=chatterbox.start, daemon=True).start()
     webhook_server = WebhookServer(config, controller.on_webhook, on_status=bridge.status.emit)
