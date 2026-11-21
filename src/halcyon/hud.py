@@ -17,6 +17,32 @@ DISPLAY = "Bahnschrift"
 MONO = "Consolas"
 
 
+SAY_MAX_W = 1400
+SAY_MAX_LINES = 3
+
+
+def wrap_lines(text, fm, max_w, max_lines):
+    words = str(text).split()
+    lines = []
+    cur = ""
+    for w in words:
+        trial = (cur + " " + w).strip()
+        if fm.horizontalAdvance(trial) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and fm.horizontalAdvance(last + "\u2026") > max_w:
+            last = last[:-1]
+        lines[-1] = last.rstrip() + "\u2026"
+    return lines or [""]
+
+
 def ease(p):
     p = min(1.0, max(0.0, p))
     return 1 - (1 - p) ** 3
@@ -480,18 +506,29 @@ class Hud(QWidget):
             font = self.font(DISPLAY, 32, QFont.Medium)
             p.setFont(font)
             fm = QFontMetricsF(font)
-            text = self.shown
-            tw = fm.horizontalAdvance(text) + 56
-            box = QRectF(960 - max(tw, 240) / 2, 868, max(tw, 240), 64)
+            lines = wrap_lines(self.said, fm, SAY_MAX_W, SAY_MAX_LINES)
+            left = len(self.shown)
+            drawn = []
+            for ln in lines:
+                if left <= 0:
+                    break
+                drawn.append(ln[:left])
+                left -= len(ln) + 1
+            widest = max([fm.horizontalAdvance(l) for l in lines] + [0]) + 56
+            bw = max(min(widest, SAY_MAX_W + 56), 240)
+            bh = 64 + (len(lines) - 1) * 42
+            box = QRectF(960 - bw / 2, 932 - bh, bw, bh)
             path = QPainterPath()
             path.addRoundedRect(box, 6, 6)
             p.fillPath(path, QColor(0, 20, 30, 150))
             p.setPen(QPen(self.rgba(1), 2))
             p.drawPath(path)
             p.setPen(QColor(235, 250, 255))
-            p.drawText(box, Qt.AlignCenter, text)
+            p.drawText(box, Qt.AlignCenter, "\n".join(drawn))
         if self.transcript:
             p.setPen(self.rgba(.9))
             p.setFont(self.font(MONO, 16, QFont.Medium, 2))
-            p.drawText(QRectF(0, 840, W, 24), Qt.AlignHCenter | Qt.AlignVCenter, self.transcript)
+            tfm = QFontMetricsF(self.font(MONO, 16, QFont.Medium, 2))
+            shown_t = tfm.elidedText(self.transcript, Qt.ElideRight, W - 240)
+            p.drawText(QRectF(0, 840, W, 24), Qt.AlignHCenter | Qt.AlignVCenter, shown_t)
         p.setOpacity(1)

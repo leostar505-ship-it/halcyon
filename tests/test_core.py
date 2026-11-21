@@ -421,3 +421,23 @@ def test_card_lines_are_clipped():
           "device": "Smart TV", "app": "Jellyfin", "ip": ""}
     lines = dict(webhook.card_lines(ev))
     assert len(lines["Playing"]) <= webhook.CARD_MAX and lines["Playing"].endswith("…")
+
+
+def test_self_question_detection():
+    from halcyon import brain
+    assert brain.is_self_question("what was updated in the last update")
+    assert brain.is_self_question("what processor is chatterbox running on")
+    assert brain.is_self_question("what are the latest patch notes")
+    assert not brain.is_self_question("what is the capital of France")
+    assert not brain.is_self_question("update my windows drivers")
+
+
+def test_wrap_lines_clips_long_text():
+    from PySide6.QtGui import QFont, QFontMetricsF, QGuiApplication
+    from halcyon import hud
+    QGuiApplication.instance() or QGuiApplication([])
+    fm = QFontMetricsF(QFont("Arial", 20))
+    text = "word " * 200
+    lines = hud.wrap_lines(text, fm, 600, 3)
+    assert len(lines) == 3 and lines[-1].endswith("…")
+    assert all(fm.horizontalAdvance(l) <= 600 for l in lines)

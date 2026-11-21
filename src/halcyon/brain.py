@@ -155,7 +155,7 @@ ROUTER_PROMPT = """You are the router for Halcyon, a voice assistant on the user
 Choose one route:
 1. A preprogrammed action (instant, preferred when one fits): {{"route":"action","action":"<name>","args":{{...}}}}
 2. The full assistant with a shell and files, for anything an action cannot do (copying files to or from the home server, running commands, installing things, researching, fixing problems, creating new actions): {{"route":"claude","task":"<the task, restated clearly>","screenshot":false}}
-3. A short answer you can give right now from general knowledge: {{"route":"chat","say":"<one or two short sentences, statement style>"}}
+3. A short answer you can give right now from general knowledge: {{"route":"chat","say":"<one or two short sentences, at most 25 words in total, statement style>"}}
 
 Set screenshot to true only when the task depends on what is currently on the user's screen.
 Never choose any route that spends money or buys anything.
@@ -177,6 +177,20 @@ def history_block(history):
     return HISTORY_BLOCK.format(history=history) if history else ""
 
 
+SELF_RE = re.compile(
+    r"\b(?:what(?:'s| is| was| were)?\s+(?:new|updated|changed|fixed)|what changed|what did (?:you|the (?:last|latest) update)|"
+    r"patch notes?|change ?log|release notes?|latest (?:update|patch|version|release)|last (?:update|patch)|recent updates?|"
+    r"which (?:processor|chip)|what (?:processor|cpu|gpu)|(?:running|run|runs) on (?:the )?(?:cpu|gpu)|"
+    r"(?:cpu|gpu) or (?:cpu|gpu)|what version)\b", re.I)
+
+
+def is_self_question(text):
+    low = (text or "").lower()
+    if not SELF_RE.search(low):
+        return False
+    return bool(re.search(r"\b(?:you|your|halcyon|yourself|voice|chatterbox|whisper|update|patch|version|speech)\b", low))
+
+
 def route(text, actions_desc, model, history="", note=""):
     fast = None if note else fast_route(text)
     if fast:
@@ -187,10 +201,12 @@ def route(text, actions_desc, model, history="", note=""):
             prompt += "\n\n" + note
         out = ask_model(model, prompt, timeout=25)
     except BrainError:
-        return {"route": "claude", "task": text, "screenshot": False}
-    data = parse_json(out)
+        out = ""
+    data = parse_json(out) if out else None
     if not isinstance(data, dict) or data.get("route") not in ("action", "claude", "chat"):
-        return {"route": "claude", "task": text, "screenshot": False}
+        data = {"route": "claude", "task": text, "screenshot": False}
+    if is_self_question(text) and not (data.get("route") == "action" and data.get("action") == "about_self"):
+        return {"route": "action", "action": "about_self", "args": {"question": text}}
     return data
 
 
@@ -259,7 +275,7 @@ Home server: the user's Ubuntu server is {user}@{host}, reachable over SSH from 
 
 You can add new abilities: write a Python file in {actions} defining NAME (snake_case), DESCRIPTION (one line, say what args it takes), and run(ctx, args) that returns a short sentence to speak or a dict with "say". Keep each file small and safe. It switches on immediately and is committed to git automatically, so the user can roll it back. Never write actions that touch payments.
 
-Your final message must be short and end with a line SAY: <one short sentence to speak aloud, statement style, no markdown>. Everything before SAY: is only shown on screen."""
+Keep everything short. Your final message must end with a line SAY: <one short sentence of at most 20 words to speak aloud, statement style, no markdown>. Everything before SAY: is only shown on screen, keep it under 60 words."""
 
 
 def parse_final(text):
