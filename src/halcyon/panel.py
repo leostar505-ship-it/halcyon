@@ -1,6 +1,8 @@
 import math
 import os
+import json
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -56,6 +58,7 @@ class Bus(QObject):
     state = Signal(str)
     amp = Signal(float)
     lights = Signal(list)
+    cbdone = Signal(bool)
 
 
 class Core(QWidget):
@@ -196,8 +199,9 @@ class Meter(QWidget):
 
 
 class Panel(QWidget):
-    def __init__(self, config, voice, hud, controller, events, lights=None):
+    def __init__(self, config, voice, hud, controller, events, lights=None, chatterbox=None):
         super().__init__()
+        self.chatterbox = chatterbox
         self.lights = lights
         self.hud_widget = hud
         self.controller = controller
@@ -215,6 +219,7 @@ class Panel(QWidget):
         self.bus.state.connect(self.set_state)
         self.bus.amp.connect(lambda v: self.core.set_amp(v))
         self.bus.lights.connect(self.got_lights)
+        self.bus.cbdone.connect(self.cb_finished)
         self.mic_stream = None
         self.mic_level = 0.0
         root = QHBoxLayout(self)
@@ -235,7 +240,7 @@ class Panel(QWidget):
         sl.addWidget(ver)
         self.stack = QStackedWidget()
         self.navs = []
-        for i, name in enumerate(("Overview", "Claude", "Voice engine", "Wake words", "Lights")):
+        for i, name in enumerate(("Overview", "Claude", "Voice engine", "Wake words", "Lights", "Webhook")):
             b = QPushButton(name)
             b.setObjectName("nav")
             b.setCheckable(True)
@@ -255,6 +260,7 @@ class Panel(QWidget):
         self.stack.addWidget(self.page_voice())
         self.stack.addWidget(self.page_wake())
         self.stack.addWidget(self.page_lights())
+        self.stack.addWidget(self.page_webhook())
         self.go(0)
         QTimer(self, interval=60, timeout=self.poll_mic).start()
         self.refresh_claude()
@@ -400,6 +406,18 @@ class Panel(QWidget):
         row.addWidget(b2)
         row.addStretch(1)
         l2.addLayout(row)
+        l2.addWidget(row_label("Chatterbox (natural voice, runs on your CPU, a few seconds per sentence)", "sub"))
+        row2 = QHBoxLayout()
+        self.cb_install = QPushButton("Install Chatterbox")
+        self.cb_install.clicked.connect(self.install_chatterbox)
+        self.cb_start = QPushButton("Start")
+        self.cb_start.clicked.connect(self.start_chatterbox)
+        self.cb_stop = QPushButton("Stop")
+        self.cb_stop.clicked.connect(self.stop_chatterbox)
+        for b in (self.cb_install, self.cb_start, self.cb_stop):
+            row2.addWidget(b)
+        row2.addStretch(1)
+        l2.addLayout(row2)
         lay.addWidget(c2)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -486,9 +504,130 @@ class Panel(QWidget):
             gr.addWidget(box)
         l2.addLayout(gr)
         lay.addWidget(c2)
+        c3 = card()
+        l3 = QVBoxLayout(c3)
+        l3.addWidget(row_label("Status", "h"))
+        self.lt_status = QPlainTextEdit()
+        self.lt_status.setReadOnly(True)
+        self.lt_status.setMaximumHeight(110)
+        l3.addWidget(self.lt_status)
+        sr = QHBoxLayout()
+        rb = QPushButton("Refresh status")
+        rb.clicked.connect(self.refresh_lights_status)
+        ab = QPushButton("Apply default now")
+        ab.clicked.connect(lambda: self.set_default(self.current_default()))
+        sr.addWidget(rb)
+        sr.addWidget(ab)
+        sr.addStretch(1)
+        l3.addLayout(sr)
+        lay.addWidget(c3)
         lay.addStretch(1)
         self.paint_colour()
+        QTimer(self, interval=2000, timeout=self.refresh_lights_status).start()
         return w
+
+    def refresh_lights_status(self):
+        if self.lights is None or not hasattr(self.lights, "status"):
+            return
+        self.lt_status.setPlainText("\n".join("%s: %s" % kv for kv in self.lights.status().items()))
+
+    def lan_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            return "127.0.0.1"
+
+    def webhook_url(self):
+        url = "http://%s:%s/" % (self.lan_ip(), self.config.get("webhook_port"))
+        tok = self.config.get("webhook_token")
+        return url + ("?token=%s" % tok if tok else "")
+
+    def webhook_body(self):
+        keys = ("NotificationType", "NotificationUsername", "DeviceName", "RemoteEndPoint", "ClientName", "Name")
+        return "{\n" + ",\n".join('  "%s": "{{%s}}"' % (k, k) for k in keys) + "\n}"
+
+    def page_webhook(self):
+        w, lay = self.page("Webhook", "Lets Jellyfin tell Halcyon about logins, playback and new items.")
+        c = card()
+        cl = QVBoxLayout(c)
+        cl.addWidget(row_label("1. Webhook URL", "h"))
+        cl.addWidget(row_label("Paste this as the Webhook Url in the Jellyfin Generic Destination.", "sub"))
+        self.wh_url = QLineEdit(self.webhook_url())
+        self.wh_url.setReadOnly(True)
+        cl.addWidget(self.wh_url)
+        r = QHBoxLayout()
+        cb = QPushButton("Copy URL")
+        cb.clicked.connect(lambda: self.copy_text(self.wh_url.text(), "URL copied."))
+        gb = QPushButton("Make a secret token")
+        gb.clicked.connect(self.make_token)
+        r.addWidget(cb)
+        r.addWidget(gb)
+        r.addStretch(1)
+        cl.addLayout(r)
+        cl.addWidget(row_label("2. Template", "h"))
+        cl.addWidget(row_label("In the same Jellyfin destination, choose Add Generic Destination, tick the events you want, and paste this as the Template.", "sub"))
+        self.wh_body = QPlainTextEdit(self.webhook_body())
+        self.wh_body.setReadOnly(True)
+        self.wh_body.setMaximumHeight(140)
+        cl.addWidget(self.wh_body)
+        r2 = QHBoxLayout()
+        cb2 = QPushButton("Copy template")
+        cb2.clicked.connect(lambda: self.copy_text(self.wh_body.toPlainText(), "Template copied."))
+        r2.addWidget(cb2)
+        r2.addStretch(1)
+        cl.addLayout(r2)
+        cl.addWidget(row_label("3. Header", "h"))
+        cl.addWidget(row_label("Add a header named Content-Type with the value application/json.", "sub"))
+        cl.addWidget(row_label("4. Firewall (only if Jellyfin cannot reach this PC)", "h"))
+        self.wh_fw = QLineEdit('netsh advfirewall firewall add rule name="Halcyon webhook" dir=in action=allow protocol=TCP localport=%s' % self.config.get("webhook_port"))
+        self.wh_fw.setReadOnly(True)
+        cl.addWidget(self.wh_fw)
+        r3 = QHBoxLayout()
+        cb3 = QPushButton("Copy firewall command")
+        cb3.clicked.connect(lambda: self.copy_text(self.wh_fw.text(), "Copied. Run it in an admin Command Prompt."))
+        tb = QPushButton("Send a test login")
+        tb.clicked.connect(self.test_webhook)
+        r3.addWidget(cb3)
+        r3.addWidget(tb)
+        r3.addStretch(1)
+        cl.addLayout(r3)
+        self.wh_note = row_label("")
+        cl.addWidget(self.wh_note)
+        lay.addWidget(c)
+        lay.addStretch(1)
+        return w
+
+    def copy_text(self, text, note):
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(text)
+        self.wh_note.setText(note)
+
+    def make_token(self):
+        import secrets
+        self.config.set("webhook_token", secrets.token_urlsafe(9))
+        self.wh_url.setText(self.webhook_url())
+        self.wh_note.setText("Token set. Copy the URL again. Restart is not needed.")
+
+    def test_webhook(self):
+        url = self.webhook_url()
+        body = json.dumps({"NotificationType": "AuthenticationSuccess", "NotificationUsername": "test",
+                           "DeviceName": "Halcyon test", "RemoteEndPoint": "127.0.0.1", "ClientName": "Halcyon"}).encode()
+
+        def job():
+            try:
+                req = urllib.request.Request(url.replace(self.lan_ip(), "127.0.0.1"), data=body,
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    self.bus.log.emit("webhook test: HTTP %s" % r.status)
+                self.bus.chat.emit("Halcyon", "Webhook test received.")
+            except Exception as exc:
+                self.bus.log.emit("webhook test failed: %s" % exc)
+        self.run(job)
+        self.wh_note.setText("Test sent. If the server is listening you will see it on the Overview page.")
 
     def current_default(self):
         try:
@@ -641,8 +780,46 @@ class Panel(QWidget):
                     return
             except Exception:
                 pass
-            self.bus.voice.emit("tts", "Voice: Chatterbox is not running, Windows voice will be used instead")
+            from . import chatterbox_setup as CB
+            note = "Voice: Chatterbox is not running, Windows voice will be used instead"
+            if not CB.installed():
+                note += " (press Install Chatterbox below)"
+            self.bus.voice.emit("tts", note)
         self.run(job)
+
+    def cb_log(self, text):
+        self.bus.log.emit(text)
+
+    def install_chatterbox(self):
+        from . import chatterbox_setup as CB
+        self.cb_install.setEnabled(False)
+        self.cb_install.setText("Installing...")
+
+        def job():
+            ok = False
+            try:
+                ok = CB.install(self.cb_log)
+                if ok and self.chatterbox is not None:
+                    self.chatterbox.start(self.cb_log)
+            except Exception as exc:
+                self.cb_log("Install error: %s" % exc)
+            self.bus.cbdone.emit(ok)
+        self.run(job)
+
+    def cb_finished(self, ok):
+        self.cb_install.setEnabled(True)
+        self.cb_install.setText("Reinstall Chatterbox" if ok else "Install Chatterbox")
+        self.refresh_voice()
+
+    def start_chatterbox(self):
+        if self.chatterbox is not None:
+            self.run(lambda: self.chatterbox.start(self.cb_log))
+
+    def stop_chatterbox(self):
+        if self.chatterbox is not None:
+            self.chatterbox.stop()
+            self.voice.chatterbox_ok = False
+            self.cb_log("Chatterbox stopped.")
 
     def speak_test(self):
         def job():

@@ -33,15 +33,29 @@ def find_claude():
     return None
 
 
+FAST_FLAGS = ["--tools", "", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence",
+              "--setting-sources", ""]
+fast_ok = [True]
+
+
+def run_model(exe, model, prompt, folder, timeout, fast):
+    cmd = [exe, "-p", "--model", model] + (FAST_FLAGS if fast else [])
+    return subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          cwd=folder, timeout=timeout, creationflags=FLAGS)
+
+
 def ask_model(model, prompt, timeout=30):
     exe = find_claude()
     if not exe:
         raise BrainError("Claude Code was not found. Install it and run `claude` once to sign in.")
     with tempfile.TemporaryDirectory(prefix="halcyon_") as folder:
         try:
-            res = subprocess.run([exe, "-p", "--model", model], input=prompt, capture_output=True, text=True,
-                                 encoding="utf-8", errors="replace", cwd=folder, timeout=timeout,
-                                 creationflags=FLAGS)
+            res = run_model(exe, model, prompt, folder, timeout, fast_ok[0])
+            if fast_ok[0] and (res.returncode != 0 or not (res.stdout or "").strip()):
+                err = (res.stderr or "").lower()
+                if "unknown" in err or "unrecognized" in err or "invalid" in err or "option" in err:
+                    fast_ok[0] = False
+                    res = run_model(exe, model, prompt, folder, timeout, False)
         except subprocess.TimeoutExpired:
             raise BrainError("Claude Code took too long to answer.")
         except OSError as exc:

@@ -28,6 +28,7 @@ DEFAULTS = {
     "open_panel_on_start": True,
     "rgb_tweaks": {},
     "icue_enabled": True,
+    "govee_cache": [],
     "openrgb_enabled": True,
     "openrgb_host": "127.0.0.1",
     "openrgb_port": 6742,

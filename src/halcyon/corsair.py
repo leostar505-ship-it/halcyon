@@ -57,6 +57,11 @@ class Corsair:
         devs, err = self.sdk.get_devices(CorsairDeviceFilter(0xFFFFFFFF))
         return devs or []
 
+    def status(self):
+        if self.ok:
+            return "connected"
+        return self.error or "not connected"
+
     def names(self):
         return [d.model for d in self.devices()]
 

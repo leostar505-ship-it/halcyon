@@ -29,9 +29,11 @@ def parse_ips(text):
 
 
 class Govee:
-    def __init__(self, ips=()):
+    def __init__(self, ips=(), on_found=None):
         self.fixed = list(ips)
         self.ips = list(ips)
+        self.on_found = on_found
+        self.next_scan = 0.0
 
     def _listener(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -70,8 +72,15 @@ class Govee:
         return list(found.values())
 
     def discover(self):
-        if not self.ips:
+        if not self.ips and time.monotonic() >= self.next_scan:
             self.ips = [d["ip"] for d in self.scan()]
+            if not self.ips:
+                self.next_scan = time.monotonic() + 60
+            elif self.on_found:
+                try:
+                    self.on_found(self.ips)
+                except Exception:
+                    pass
         return self.ips
 
     def send(self, ip, cmd, data):
@@ -81,7 +90,7 @@ class Govee:
         finally:
             s.close()
 
-    def status(self, ip):
+    def dev_status(self, ip):
         s = self._listener()
         try:
             s.sendto(json.dumps({"msg": {"cmd": "devStatus", "data": {}}}).encode(), (ip, 4003))
@@ -113,7 +122,13 @@ class Govee:
             self.send(ip, "colorwc", {"color": {"r": c[0], "g": c[1], "b": c[2]}, "colorTemInKelvin": 0})
 
     def refresh(self):
-        self.ips = []
+        self.ips = list(self.fixed)
+        self.next_scan = 0.0
+
+    def status(self):
+        if self.ips:
+            return "%d light(s): %s" % (len(self.ips), ", ".join(self.ips))
+        return "no lights found (turn on LAN Control in the Govee Home app and allow Halcyon in the Windows firewall)"
 
 
 class OpenRGB:
@@ -123,6 +138,7 @@ class OpenRGB:
         self.zone_leds = int(zone_leds or 0)
         self.client = None
         self.sized = False
+        self.count = 0
 
     def grow_zones(self):
         if self.sized or self.zone_leds <= 0 or not self.connect():
@@ -166,27 +182,33 @@ class OpenRGB:
     def colour(self, rgb, tint=None):
         from openrgb.utils import RGBColor
         self.grow_zones()
+        last = None
         for attempt in (1, 2):
-            self.close()
             if not self.connect():
-                time.sleep(0.4)
+                last = RuntimeError("could not connect to OpenRGB at %s:%s (start the SDK server)" % (self.host, self.port))
+                time.sleep(0.3)
                 continue
             try:
+                n = 0
                 for d in list(self.client.devices):
                     c = apply_gain(rgb, tint(d.name) if tint else None)
                     try:
+                        d.set_color(RGBColor(*c), fast=True)
+                    except TypeError:
                         d.set_color(RGBColor(*c))
-                    except Exception:
-                        try:
-                            d.set_mode("direct")
-                            d.set_color(RGBColor(*c))
-                        except Exception:
-                            pass
+                    n += 1
+                self.count = n
                 return
-            except Exception:
-                continue
-            finally:
+            except Exception as exc:
+                last = exc
                 self.close()
+        if last:
+            raise last
+
+    def status(self):
+        if self.client is not None:
+            return "connected, %d device(s)" % len(self.client.devices)
+        return "not connected (start the SDK server in OpenRGB)"
 
     def close(self):
         try:
@@ -219,7 +241,7 @@ class Lights:
         if explicit:
             self.backends = explicit
         else:
-            self.backends.append(Govee(parse_ips(config.get("govee_ips"))))
+            self.backends.append(Govee(parse_ips(config.get("govee_ips")) or list(config.get("govee_cache") or []), self.remember_govee))
             if config.get("openrgb_enabled"):
                 self.backends.append(OpenRGB(config.get("openrgb_host"), int(config.get("openrgb_port")), config.get("rgb_zone_leds")))
             if config.get("icue_enabled"):
@@ -227,6 +249,8 @@ class Lights:
                 self.backends.append(Corsair())
         self.q = queue.Queue()
         self.active = False
+        self.results = {}
+        self.logfile = None
         self.thread = threading.Thread(target=self.loop, daemon=True)
         self.thread.start()
 
@@ -275,14 +299,72 @@ class Lights:
         self.q.put(("close", None))
         self.thread.join(6)
 
+    def remember_govee(self, ips):
+        try:
+            self.config.set("govee_cache", list(ips))
+        except Exception:
+            pass
+
+    def label(self, b):
+        return type(b).__name__
+
+    def log(self, text):
+        try:
+            if self.logfile is None:
+                from .config import config_dir
+                self.logfile = config_dir() / "lights.log"
+            if self.logfile.exists() and self.logfile.stat().st_size > 200000:
+                self.logfile.write_text("")
+            with open(self.logfile, "a", encoding="utf-8") as f:
+                f.write("%s %s\n" % (time.strftime("%H:%M:%S"), text))
+        except Exception:
+            pass
+
+    def paint_one(self, b, c):
+        name = self.label(b)
+        t0 = time.monotonic()
+        try:
+            b.colour(c, self.tint)
+            self.results[name] = "ok %.0f ms" % ((time.monotonic() - t0) * 1000)
+        except Exception as exc:
+            self.results[name] = "error: %s" % exc
+        self.log("%s %s %s" % (name, c, self.results[name]))
+
     def paint(self, rgb):
         c = scale(rgb, self.config.get("rgb_brightness"))
+        threads = [threading.Thread(target=self.paint_one, args=(b, c), daemon=True) for b in self.backends]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(8)
+
+    def status(self):
+        out = {}
         for b in self.backends:
-            self.safe(b.colour, c, self.tint)
+            name = self.label(b)
+            line = self.results.get(name, "not used yet")
+            if hasattr(b, "status"):
+                try:
+                    line = "%s | %s" % (b.status(), line)
+                except Exception:
+                    pass
+            out[name] = line
+        return out
+
+    def next_op(self):
+        op = self.q.get()
+        while True:
+            try:
+                nxt = self.q.get_nowait()
+            except queue.Empty:
+                return op
+            if nxt != op:
+                self.q.queue.appendleft(nxt)
+                return op
 
     def loop(self):
         while True:
-            op, arg = self.q.get()
+            op, arg = self.next_op()
             if op == "close":
                 for b in self.backends:
                     if hasattr(b, "close"):

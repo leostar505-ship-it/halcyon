@@ -104,6 +104,10 @@ def main(argv=None):
     listener = Listener(config, controller.on_command, on_level=lambda v: hud.bridge.amp(v) if controller.asking or
                         hud.state == "listening" else None, on_status=bridge.status.emit, on_wake=controller.on_wake)
     controller.attach_listener(listener)
+    from .chatterbox_setup import Server as ChatterboxServer, installed as chatterbox_installed
+    chatterbox = ChatterboxServer(config)
+    if not selftest and chatterbox_installed():
+        threading.Thread(target=chatterbox.start, daemon=True).start()
     webhook_server = WebhookServer(config, controller.on_webhook, on_status=bridge.status.emit)
 
     def talk():
@@ -132,7 +136,7 @@ def main(argv=None):
     def open_panel():
         if not panel_holder:
             from .panel import Panel
-            p = Panel(config, voice, hud, controller, SAMPLE_EVENTS, lights)
+            p = Panel(config, voice, hud, controller, SAMPLE_EVENTS, lights, chatterbox)
             bridge.status.connect(p.note)
             panel_holder.append(p)
         panel_holder[0].show()
@@ -229,6 +233,7 @@ def main(argv=None):
         listener.stop()
         screen.stop()
         webhook_server.stop()
+        chatterbox.stop()
         voice.stop()
     except Exception:
         pass
