@@ -177,12 +177,14 @@ def history_block(history):
     return HISTORY_BLOCK.format(history=history) if history else ""
 
 
-def route(text, actions_desc, model, history=""):
-    fast = fast_route(text)
+def route(text, actions_desc, model, history="", note=""):
+    fast = None if note else fast_route(text)
     if fast:
         return fast
     try:
         prompt = ROUTER_PROMPT.format(actions=actions_desc, history=history_block(history), text=json.dumps(text))
+        if note:
+            prompt += "\n\n" + note
         out = ask_model(model, prompt, timeout=25)
     except BrainError:
         return {"route": "claude", "task": text, "screenshot": False}
@@ -190,6 +192,22 @@ def route(text, actions_desc, model, history=""):
     if not isinstance(data, dict) or data.get("route") not in ("action", "claude", "chat"):
         return {"route": "claude", "task": text, "screenshot": False}
     return data
+
+
+FACTS_PROMPT = """You are Halcyon, a calm British assistant on the user's PC. Answer the user's question about yourself using ONLY the facts below. Reply in one to three short spoken sentences, statement style, calling the user sir. If the facts do not say, say you are not sure. Reply with only the spoken answer.
+
+Facts:
+{facts}
+
+Question: {question}"""
+
+
+def answer_from_facts(question, facts, model):
+    try:
+        out = ask_model(model, FACTS_PROMPT.format(facts=facts, question=json.dumps(question)), timeout=30)
+    except BrainError:
+        return ""
+    return (out or "").strip().strip('"')
 
 
 EVENT_PROMPT = """You are Halcyon, a calm British assistant on the user's PC. Write ONE short spoken line, at most 14 words, announcing this home server event to the user, whom you call sir. State it as a plain statement, never a question. Reply with only the line.

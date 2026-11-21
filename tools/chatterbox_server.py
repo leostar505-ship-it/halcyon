@@ -33,6 +33,9 @@ def synth(text):
         return buf.getvalue()
 
 
+INFO = ["ok device=cpu"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -42,7 +45,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(INFO[0].encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -93,6 +96,7 @@ def main():
                     pick = i
             torch.cuda.set_device(pick)
             print("Using GPU %d: %s" % (pick, torch.cuda.get_device_name(pick)), flush=True)
+            INFO[0] = "ok device=gpu name=%s" % torch.cuda.get_device_name(pick)
     model = ChatterboxTTS.from_pretrained(device=device)
     synth("Ready.")
     print("Chatterbox server ready on port %d" % args.port, flush=True)

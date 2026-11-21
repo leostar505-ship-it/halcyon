@@ -7,8 +7,12 @@ import time
 from .cues import NullCues
 from .history import History
 from .rgb import NullLights
-from . import brain, safety, webhook
+from . import actions, brain, safety, webhook
 from .actions import Registry
+
+
+def c_model(controller):
+    return controller.config.get("router_model")
 
 
 class Ctx:
@@ -32,6 +36,12 @@ class Ctx:
 
     def clear_history(self):
         return self._c.history.clear()
+
+    def say(self, text):
+        self._c.say(text, remember=False)
+
+    def facts(self):
+        return self._c.self_facts()
 
 
 class Controller:
@@ -212,6 +222,7 @@ class Controller:
             self.settle()
             return
         past = self.history.text()
+        self.last_text = text
         self.history.add("User", text)
         decision = brain.route(text, self.registry.describe(), self.config.get("router_model"), history=past)
         kind = decision.get("route")
@@ -227,9 +238,46 @@ class Controller:
             return
         self.run_task(decision.get("task") or text, bool(decision.get("screenshot")), past)
 
-    def run_action(self, decision):
+    def self_facts(self):
+        import urllib.request
+        from . import __version__
+        c = self.config
+        out = ["Halcyon version %s." % __version__, "Voice engine in use: %s." % getattr(self.voice, "engine_name", "unknown"),
+               "Muted: %s." % bool(c.get("voice_muted")), "Router model: %s." % c.get("router_model"),
+               "Chatterbox is set to prefer the %s." % ("CPU" if c.get("chatterbox_force_cpu") else "GPU, falling back to CPU if unavailable"),
+               "Lights enabled: %s, brightness %s." % (c.get("rgb_enabled"), c.get("rgb_brightness")),
+               "Conversation memory: last %s turns or %s minutes." % (c.get("history_turns"), c.get("history_minutes"))]
+        try:
+            with urllib.request.urlopen(c.get("chatterbox_url") + "/health", timeout=2) as r:
+                out.append("Chatterbox server reports: %s." % r.read().decode("utf-8", "replace")[:120])
+        except Exception:
+            out.append("The Chatterbox server is not running.")
+        try:
+            out.append("Light devices: %s." % "; ".join("%s %s" % kv for kv in self.lights.status().items()))
+        except Exception:
+            pass
+        return out
+
+    def run_action(self, decision, rerouted=False):
         name = decision.get("action")
         args = decision.get("args") or {}
+        if not rerouted:
+            try:
+                note = actions.unresolved_note(self.ctx, name, args, getattr(self, "last_text", ""))
+            except Exception:
+                note = ""
+            if note:
+                again = brain.route(getattr(self, "last_text", ""), self.registry.describe(), c_model(self), note=note)
+                if again.get("route") == "action":
+                    return self.run_action(again, True)
+                if again.get("route") == "chat":
+                    self.screen.set_activity("none")
+                    self.say(str(again.get("say") or "I couldn't tell what you meant, sir."))
+                    self.finish_hud()
+                    self.settle()
+                    return
+                self.run_task(again.get("task") or getattr(self, "last_text", ""), False)
+                return
         acts = self.registry.all()
         info = acts.get(name)
         if not info:

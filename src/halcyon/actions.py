@@ -125,25 +125,6 @@ def steam_games():
     return list(games.values())
 
 
-def sound_key(s):
-    s = re.sub(r"[^a-z0-9]", "", str(s).lower())
-    for a, b in (("ight", "it"), ("igh", "i"), ("ite", "it"), ("ph", "f"), ("ck", "k")):
-        s = s.replace(a, b)
-    return s
-
-
-def sounds_like(query, name, threshold=0.8):
-    q = sound_key(query)
-    n = sound_key(name)
-    if len(q) < 4 or not n:
-        return False
-    for w in range(max(3, len(q) - 2), len(q) + 3):
-        for i in range(0, max(1, len(n) - w + 1)):
-            if difflib.SequenceMatcher(None, q, n[i:i + w]).ratio() >= threshold:
-                return True
-    return False
-
-
 def best_match(query, names):
     q = _norm(query)
     if not q:
@@ -272,18 +253,6 @@ def resolve_app(ctx, name):
     key = best_match(name, list(epic.keys()))
     if key:
         return ("epic", epic[key]["uri"], key)
-    for cand in apps:
-        if sounds_like(name, cand):
-            return ("path", apps[cand], cand)
-    for cand in menu:
-        if sounds_like(name, cand):
-            return ("path", menu[cand], cand)
-    for cand in by_name:
-        if sounds_like(name, cand):
-            return ("steam", by_name[cand]["id"], cand)
-    for cand in epic:
-        if sounds_like(name, cand):
-            return ("epic", epic[cand]["uri"], cand)
     scanned = resolve_by_scan(name)
     if scanned:
         ctx_hits = scanned[3]
@@ -371,15 +340,6 @@ def find_procs(ctx, name):
         except Exception:
             continue
         if pn and (q == pn or q in pn or pn in q and len(pn) > 3):
-            matches.append(p)
-    if matches:
-        return matches
-    for p in psutil.process_iter(["name", "memory_info"]):
-        try:
-            pn = os.path.splitext(p.info["name"] or "")[0]
-        except Exception:
-            continue
-        if pn and sounds_like(name, pn):
             matches.append(p)
     return matches
 
@@ -621,3 +581,63 @@ class Registry:
             return res.returncode == 0
         except OSError:
             return False
+
+
+def app_candidates(ctx):
+    names = []
+    for p in psutil.process_iter(["name", "exe"]):
+        try:
+            exe = (p.info.get("exe") or "").lower()
+            if exe and "\\windows\\" not in exe:
+                n = os.path.splitext(p.info.get("name") or "")[0]
+                if n and n not in names:
+                    names.append(n)
+        except Exception:
+            continue
+    known = list((ctx.config.get("apps") or {}).keys()) + list(start_menu_apps().keys())
+    known += [g["name"] for g in steam_games()] + [g["name"] for g in epic_games()]
+    return names[:80], known[:150]
+
+
+def unresolved_note(ctx, name, args, said):
+    app = str(args.get("app", "")).strip()
+    if name == "close_app" and not find_procs(ctx, app):
+        running, known = app_candidates(ctx)
+    elif name == "open_app" and not resolve_app(ctx, app):
+        running, known = app_candidates(ctx)
+    else:
+        return ""
+    return ("Your last choice was action %s with app %s, but nothing on the PC matches that name. "
+            "Speech recognition may have misheard it. Running apps: %s. Installed apps and games: %s. "
+            "Decide what the user most likely meant and reply with the corrected route JSON. "
+            "If it is genuinely unclear, reply with a chat route that asks one short clarifying question."
+            % (name, json.dumps(app), ", ".join(running), ", ".join(known)))
+
+
+GITHUB_COMMITS = "https://api.github.com/repos/leostar505-ship-it/halcyon/commits?per_page=8"
+
+
+def github_updates():
+    import urllib.request
+    req = urllib.request.Request(GITHUB_COMMITS, headers={"User-Agent": "halcyon", "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    return ["%s: %s" % ((c.get("commit", {}).get("author", {}).get("date") or "")[:10],
+                        (c.get("commit", {}).get("message") or "").splitlines()[0]) for c in data]
+
+
+@action("about_self", "Answer questions about Halcyon itself: its settings, what hardware the voice runs on, lights, version, "
+        "or what changed in the latest update. args: question")
+def about_self(ctx, args):
+    from . import brain
+    question = str(args.get("question", "")).strip()
+    low = question.lower()
+    facts = list(ctx.facts())
+    if any(w in low for w in ("update", "patch", "change", "new", "latest", "version", "release")):
+        ctx.say("Checking GitHub for the latest patch notes, sir.")
+        try:
+            facts.append("Recent updates, newest first: " + " | ".join(github_updates()))
+        except Exception as exc:
+            facts.append("GitHub could not be reached: %s" % exc)
+    answer = brain.answer_from_facts(question, "\n".join(facts), ctx.config.get("router_model"))
+    return {"say": answer or "I couldn't work that out, sir.", "expr": "happy"}

@@ -225,3 +225,16 @@ def test_webhook_leaves_sleeping_screen_and_lights_alone(env):
           "app": "Safari", "item": "", "message": "", "at": time.time()}
     c.on_webhook(ev)
     assert shown == [] and eyes.activity == "sleep"
+
+
+def test_unknown_app_goes_back_to_the_router(env):
+    c, hud, screen, voice, clip = env
+    c.run_command("close zzqxv")
+    assert voice.spoken == ["It is a lovely day, sir."]
+
+
+def test_about_self_answers_from_facts(env):
+    c, hud, screen, voice, clip = env
+    res = c.registry.run("about_self", c.ctx, {"question": "what processor is chatterbox using"})
+    assert res["say"] == "Sir, Alex has just logged on."
+    assert any("Chatterbox" in f for f in c.self_facts())
