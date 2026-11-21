@@ -238,3 +238,16 @@ def test_about_self_answers_from_facts(env):
     res = c.registry.run("about_self", c.ctx, {"question": "what processor is chatterbox using"})
     assert res["say"] == "Sir, Alex has just logged on."
     assert any("Chatterbox" in f for f in c.self_facts())
+
+
+def test_guess_is_confirmed_before_running(env, monkeypatch):
+    c, hud, screen, voice, clip = env
+    from halcyon import brain
+    real = brain.route
+    monkeypatch.setattr(brain, "route", lambda text, d, m, history="", note="":
+                        {"route": "action", "action": "close_app", "args": {"app": "Fortnite"}} if note else real(text, d, m, history=history))
+    asked = []
+    c.ask_yes_no = lambda q, b: asked.append(q) or False
+    c.run_command("close zzqxv")
+    assert asked == ["Did you mean Fortnite, sir? Shall I close it? Say yes or no."]
+    assert voice.spoken[-1] == "Cancelled, sir."

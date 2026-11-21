@@ -269,6 +269,23 @@ class Controller:
             if note:
                 again = brain.route(getattr(self, "last_text", ""), self.registry.describe(), c_model(self), note=note)
                 if again.get("route") == "action":
+                    guess = str((again.get("args") or {}).get("app") or "").strip()
+                    if guess and again.get("action") in ("open_app", "close_app"):
+                        verb = "open" if again.get("action") == "open_app" else "close"
+                        self.screen.set_activity("none")
+                        self.hud.send("mini", True)
+                        self.hud.job_start()
+                        ok = self.ask_yes_no("Did you mean %s, sir? Shall I %s it? Say yes or no." % (guess, verb),
+                                             "%s %s?" % (verb.capitalize(), guess))
+                        self.hud.job_end()
+                        self.hud.send("mini", False)
+                        if not ok:
+                            self.say("Cancelled, sir.")
+                            self.finish_hud(3)
+                            self.settle()
+                            return
+                        again = dict(again)
+                        again["confirmed"] = True
                     return self.run_action(again, True)
                 if again.get("route") == "chat":
                     self.screen.set_activity("none")
@@ -283,7 +300,7 @@ class Controller:
         if not info:
             self.run_task(decision.get("task") or str(name), False)
             return
-        if info.get("confirm"):
+        if info.get("confirm") and not decision.get("confirmed"):
             self.screen.set_activity("none")
             self.hud.send("mini", True)
             self.hud.job_start()
