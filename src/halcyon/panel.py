@@ -373,10 +373,21 @@ class Panel(QWidget):
         self.devs = []
         try:
             import sounddevice as sd
+            apis = [a["name"] for a in sd.query_hostapis()]
+            pick = next((n for n in apis if "WASAPI" in n), None)
+            seen = set()
+            self.dev.addItem("System default", None)
             for i, d in enumerate(sd.query_devices()):
-                if d.get("max_input_channels", 0) > 0:
-                    self.devs.append(i)
-                    self.dev.addItem("%s" % d["name"], i)
+                if d.get("max_input_channels", 0) <= 0:
+                    continue
+                if pick and apis[d["hostapi"]] != pick:
+                    continue
+                name = d["name"]
+                if name in seen or "Sound Mapper" in name or "Primary Sound" in name:
+                    continue
+                seen.add(name)
+                self.devs.append(i)
+                self.dev.addItem(name, i)
         except Exception as exc:
             self.dev.addItem("sounddevice unavailable: %s" % exc, None)
         cl.addWidget(self.dev)
