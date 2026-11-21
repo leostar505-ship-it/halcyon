@@ -96,7 +96,7 @@ MEDIUM_RE = re.compile(
 LOW_RE = re.compile(
     r"^(?:start|start-process|explorer|echo|write-output|write-host|dir|ls|cd|pwd|type|cat|get-\w+|where|whoami|hostname|"
     r"ipconfig|ping|date|time|tasklist|systeminfo|ver|vol|tree|findstr|select-string|more|help|set|cls|clear|"
-    r"python|py|code|notepad|calc|mspaint|msedge|chrome|firefox|steam|spotify|discord|open|xdg-open)\b", re.I)
+    r"code|notepad|calc|mspaint|msedge|chrome|firefox|steam|spotify|discord|open|xdg-open)\b", re.I)
 
 REASONS = {"high": "That could delete data or change core system settings.", "medium": "That changes something on this PC."}
 
@@ -116,7 +116,7 @@ def assess_command(cmd):
             level = "high"
         elif re.search(r"\s>>?\s*\S", seg) or MEDIUM_RE.search(seg):
             level = "medium"
-        elif LOW_RE.search(seg) or re.match(r"^[\w.:\\/ -]+\.(?:exe|lnk|url|bat)\b", seg, re.I):
+        elif LOW_RE.search(seg) or re.match(r"^[\w.:\\/ -]+\.(?:exe|lnk|url|bat)\s*$", seg, re.I):
             level = "low"
         else:
             level = "medium"

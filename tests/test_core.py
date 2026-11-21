@@ -406,3 +406,10 @@ def test_registry_and_system_changes_are_high_risk():
                 "bcdedit /set x y", "net user bob /add", "Set-ExecutionPolicy Unrestricted"):
         assert safety.assess_command(cmd) == "high", cmd
     assert safety.assess_command("reg query HKCU\\Software\\X") == "medium"
+
+
+def test_exe_with_arguments_is_not_low_risk():
+    from halcyon import safety
+    assert safety.assess_command('"C:\\Python\\python.exe" -c "print(7)"') == "medium"
+    assert safety.assess_command("python script.py") == "medium"
+    assert safety.assess_command('"C:\\Games\\Fortnite\\fortnite.exe"') == "low"
