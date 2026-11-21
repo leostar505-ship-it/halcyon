@@ -133,6 +133,10 @@ class Listener:
             talk = W.Server(exe, W.model_path(self.config.get("command_model")), gpu)
             talk.extra = {"prompt": "Halcyon."}
         wake.start()
+        if talk is not wake:
+            talk.start()
+        self.engine_gpu = bool(wake.used_gpu)
+        self.on_status("Speech recognition running on the %s." % ("GPU" if wake.used_gpu else "CPU"))
         return wake, talk
 
     def _run(self):

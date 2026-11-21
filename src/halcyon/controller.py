@@ -251,6 +251,9 @@ class Controller:
                "Chatterbox is set to prefer the %s." % ("CPU" if c.get("chatterbox_force_cpu") else "GPU, falling back to CPU if unavailable"),
                "Lights enabled: %s, brightness %s." % (c.get("rgb_enabled"), c.get("rgb_brightness")),
                "Conversation memory: last %s turns or %s minutes." % (c.get("history_turns"), c.get("history_minutes"))]
+        eg = getattr(self.listener, "engine_gpu", None)
+        if eg is not None:
+            out.append("Speech recognition (Whisper) runs on the %s." % ("GPU" if eg else "CPU"))
         try:
             with urllib.request.urlopen(c.get("chatterbox_url") + "/health", timeout=2) as r:
                 out.append("Chatterbox server reports: %s." % r.read().decode("utf-8", "replace")[:120])
