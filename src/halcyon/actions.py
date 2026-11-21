@@ -150,6 +150,91 @@ def launch_path(path):
         subprocess.Popen(["xdg-open", path])
 
 
+RUN_EXTS = (".exe", ".bat", ".cmd", ".py")
+SKIP_NAMES = re.compile(r"unins|uninst|crash|helper|setup|install|update|redist|vcredist|easyanticheat|eac|dxsetup|report|bootstrap|cef|webhelper", re.I)
+
+
+def scan_roots():
+    roots = []
+    for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        v = os.environ.get(env)
+        if v:
+            roots.append(v)
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(os.path.join(local, "Programs"))
+    home = os.environ.get("USERPROFILE")
+    if home:
+        for sub in ("Desktop", "Downloads", "Documents"):
+            roots.append(os.path.join(home, sub))
+    if sys.platform == "win32":
+        for letter in "CDEFGH":
+            for sub in ("Games", "Epic Games", "SteamLibrary", "Program Files\\Epic Games"):
+                roots.append("%s:\\%s" % (letter, sub))
+    seen = []
+    for r in roots:
+        r = os.path.normcase(os.path.abspath(r))
+        if r not in seen and os.path.isdir(r):
+            seen.append(r)
+    return seen
+
+
+def scan_app(name, roots=None, max_depth=6, budget=5.0):
+    q = _norm(name)
+    if not q:
+        return []
+    started = time.monotonic()
+    out = []
+    for root in (roots if roots is not None else scan_roots()):
+        base_depth = root.rstrip("\\/").count(os.sep)
+        for cur, dirs, files in os.walk(root):
+            if time.monotonic() - started > budget:
+                return rank_hits(out)
+            depth = cur.count(os.sep) - base_depth
+            if depth >= max_depth:
+                dirs[:] = []
+            rel = os.path.relpath(cur, root)
+            folders = [] if rel == "." else rel.split(os.sep)
+            dir_hit = any(q in _norm(f) for f in folders)
+            for f in files:
+                stem, ext = os.path.splitext(f)
+                if ext.lower() not in RUN_EXTS:
+                    continue
+                stem_hit = q in _norm(stem)
+                if not stem_hit and not dir_hit:
+                    continue
+                if SKIP_NAMES.search(stem) and not _norm(stem) == q:
+                    continue
+                out.append({"path": os.path.join(cur, f), "stem_hit": stem_hit, "dir_hit": dir_hit,
+                            "depth": depth, "ext": ext.lower(), "exact": _norm(stem) == q,
+                            "folders": folders})
+    return rank_hits(out)
+
+
+def rank_hits(hits):
+    order = {".exe": 0, ".bat": 1, ".cmd": 2, ".py": 3}
+    return sorted(hits, key=lambda h: (not h["exact"], not h["stem_hit"], order[h["ext"]], h["depth"], len(h["path"])))
+
+
+def epic_uri_for(hit):
+    parts = hit["path"].replace("/", "\\").split("\\")
+    for i, part in enumerate(parts):
+        if part.lower() == "epic games" and i + 1 < len(parts) - 1:
+            return "com.epicgames.launcher://apps/%s?action=launch&silent=true" % quote(parts[i + 1], safe="")
+    return ""
+
+
+def resolve_by_scan(name):
+    hits = scan_app(name)
+    if not hits:
+        return None
+    best = hits[0]
+    uri = epic_uri_for(best)
+    if uri:
+        return ("epic", uri, _norm(name), hits)
+    return ("path", best["path"], _norm(os.path.splitext(os.path.basename(best["path"]))[0]), hits)
+
+
 def resolve_app(ctx, name):
     apps = ctx.config.get("apps") or {}
     key = best_match(name, list(apps.keys()))
@@ -168,10 +253,26 @@ def resolve_app(ctx, name):
     key = best_match(name, list(epic.keys()))
     if key:
         return ("epic", epic[key]["uri"], key)
+    scanned = resolve_by_scan(name)
+    if scanned:
+        ctx_hits = scanned[3]
+        try:
+            ctx.last_scan = [h["path"] for h in ctx_hits]
+        except Exception:
+            pass
+        return scanned[:3]
     return None
 
 
 def launch_target(kind, target):
+    if kind == "path" and target.lower().endswith(".py"):
+        py = shutil.which("py") or shutil.which("python") or shutil.which("python3")
+        if py:
+            subprocess.Popen([py, target], cwd=os.path.dirname(target))
+            return
+    if kind == "path" and target.lower().endswith((".bat", ".cmd")):
+        subprocess.Popen(["cmd", "/c", target], cwd=os.path.dirname(target)) if sys.platform == "win32" else subprocess.Popen([target], cwd=os.path.dirname(target))
+        return
     launch_path("steam://rungameid/%s" % target if kind == "steam" else target)
 
 
@@ -224,8 +325,10 @@ def open_app(ctx, args):
         launch_target(kind, target)
     except Exception as exc:
         return {"say": "I couldn't open %s, sir." % shown, "expr": "sad", "detail": str(exc)}
+    hits = getattr(ctx, "last_scan", None) or []
+    detail = "\n".join(hits[:15]) if hits else ""
     return {"say": "Opening %s, sir." % shown if kind == "path" else "Launching %s, sir." % shown,
-            "expr": "happy"}
+            "expr": "happy", "detail": detail}
 
 
 def find_procs(ctx, name):

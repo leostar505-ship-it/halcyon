@@ -1,3 +1,4 @@
+import os
 import time
 
 from halcyon import brain, safety, webhook
@@ -353,3 +354,25 @@ def test_run_command_action():
     for bad in ("format c:", "rm -rf /", "diskpart", "del /s /q c:\\", "buy me a skin"):
         assert "won't run" in actions.run_command(ctx, {"command": bad})["say"], bad
     assert "didn't catch" in actions.run_command(ctx, {"command": " "})["say"]
+
+
+def test_scan_finds_instances_and_ranks(tmp_path):
+    from halcyon import actions
+    (tmp_path / "Foo" / "bin").mkdir(parents=True)
+    (tmp_path / "Foo" / "foo.exe").write_text("x")
+    (tmp_path / "Foo" / "unins000.exe").write_text("x")
+    (tmp_path / "Foo" / "bin" / "foo.py").write_text("x")
+    (tmp_path / "foo-run.bat").write_text("x")
+    hits = actions.scan_app("foo", roots=[str(tmp_path)])
+    names = [os.path.basename(h["path"]) for h in hits]
+    assert names[0] == "foo.exe" and "foo.py" in names and "foo-run.bat" in names
+    assert "unins000.exe" not in names
+
+
+def test_scan_epic_folder_uses_launcher_uri(tmp_path):
+    from halcyon import actions
+    d = tmp_path / "Epic Games" / "Fortnite" / "FortniteGame" / "Binaries"
+    d.mkdir(parents=True)
+    (d / "FortniteClient-Win64-Shipping.exe").write_text("x")
+    hit = actions.scan_app("fortnite", roots=[str(tmp_path)])[0]
+    assert actions.epic_uri_for(hit) == "com.epicgames.launcher://apps/Fortnite?action=launch&silent=true"
