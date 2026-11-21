@@ -81,16 +81,22 @@ class Controller:
         self.screen.set_activity("none")
         self.screen.set_expression("curious")
 
-    def say(self, text, show=None):
+    def say(self, text, show=None, reveal=None):
         shown = text if show is None else show
         if self.listener:
             self.listener.paused = True
-        self.hud.said(shown)
-        self.hud.state("speaking")
-        self.screen.set_activity("speak")
+
+        def start():
+            if reveal:
+                reveal()
+            self.hud.said(shown)
+            self.hud.state("speaking")
+            self.screen.set_activity("speak")
         try:
+            self.voice.start_hook = start
             self.voice.speak(text, on_amp=lambda v: self.hud.amp(v))
         finally:
+            self.voice.start_hook = None
             self.hud.state("idle")
             self.screen.set_activity("none")
             if self.listener:
@@ -353,11 +359,11 @@ class Controller:
         self.cues.play("alert" if level == "alert" else "info")
         self.light_on(level)
         self.screen.card(webhook.card_lines(ev), level, expr)
-        with self.lock:
+        def reveal():
             self.hud.begin(True)
             self.hud.level(level)
             self.hud.transcript("WEBHOOK > jellyfin / %s" % (ev["raw"] or ev["kind"]).lower())
-            self.hud.state("thinking")
+        with self.lock:
             line = brain.event_line(ev, self.config.get("router_model"))
-            self.say(line)
-            self.finish_hud(5)
+            self.say(line, reveal=reveal)
+            self.finish_hud(1.5)

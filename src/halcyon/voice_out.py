@@ -20,6 +20,7 @@ SAPI_SCRIPT = (
     "if($n -match 'George|Ryan|Hazel|Susan'){ $pick=$n; if($n -match 'George|Ryan'){break} }};"
     "if($pick){$s.SelectVoice($pick)};"
     "$s.Rate=0;"
+    "[Console]::Out.WriteLine('S');[Console]::Out.Flush();"
     "$s.Speak([Console]::In.ReadToEnd())"
 )
 
@@ -37,6 +38,7 @@ class Voice:
         self.chatterbox_ok = None
         self.checked = 0.0
         self.engine_name = "none"
+        self.start_hook = None
 
     def set_muted(self, value):
         self.muted = bool(value)
@@ -92,7 +94,16 @@ class Voice:
                 pass
         self._simulate(text, on_amp)
 
+    def started(self):
+        hook, self.start_hook = self.start_hook, None
+        if hook:
+            try:
+                hook()
+            except Exception:
+                pass
+
     def _simulate(self, text, on_amp):
+        self.started()
         end = time.monotonic() + max(1.0, len(text) / 15.0)
         n = 0
         while time.monotonic() < end and not self.stop_flag.is_set():
@@ -129,6 +140,7 @@ class Voice:
                 time.sleep(.04)
 
         threading.Thread(target=feed, daemon=True).start()
+        self.started()
         try:
             if sys.platform == "win32":
                 import winsound
@@ -142,7 +154,16 @@ class Voice:
         self.engine_name = "sapi"
         self.proc = subprocess.Popen(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", SAPI_SCRIPT],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=FLAGS)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=FLAGS)
+        proc = self.proc
+
+        def wait_start():
+            try:
+                proc.stdout.readline()
+                self.started()
+            except Exception:
+                pass
+        threading.Thread(target=wait_start, daemon=True).start()
         try:
             self.proc.stdin.write(text.encode("utf-8"))
             self.proc.stdin.close()
