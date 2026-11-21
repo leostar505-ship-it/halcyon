@@ -192,6 +192,7 @@ class OpenRGB:
         self.sized = False
         self.count = 0
         self.detail = []
+        self.error = ""
 
     def grow_zones(self):
         if self.sized or self.zone_leds <= 0 or not self.connect():
@@ -238,7 +239,8 @@ class OpenRGB:
         last = None
         for attempt in (1, 2):
             if not self.connect():
-                last = RuntimeError("could not connect to OpenRGB at %s:%s (start the SDK server)" % (self.host, self.port))
+                last = RuntimeError("could not connect to OpenRGB at %s:%s (is OpenRGB open with its SDK server on?)" % (self.host, self.port))
+                self.error = str(last)
                 time.sleep(0.3)
                 continue
             try:
@@ -259,6 +261,7 @@ class OpenRGB:
                     n += 1
                 self.count = n
                 self.detail = detail
+                self.error = ""
                 return
             except Exception as exc:
                 last = exc
@@ -269,7 +272,9 @@ class OpenRGB:
     def status(self):
         if self.client is not None:
             return "connected, %d device(s): %s" % (len(self.client.devices), "; ".join(self.detail) or "no paint yet")
-        return "not connected (start the SDK server in OpenRGB)"
+        if self.error:
+            return "last error: %s" % self.error
+        return "idle, %d device(s) last painted: %s" % (self.count, "; ".join(self.detail) or "nothing yet")
 
     def close(self):
         try:
