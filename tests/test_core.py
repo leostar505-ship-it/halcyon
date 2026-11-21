@@ -398,3 +398,11 @@ def test_command_risk_levels():
     assert safety.assess_command("somethingweird") == "medium"
     assert safety.assess_command("Remove-Item C:\\x.txt") == "high"
     assert safety.assess_command("whoami && del a.txt") == "high"
+
+
+def test_registry_and_system_changes_are_high_risk():
+    from halcyon import safety
+    for cmd in ("reg add HKCU\\Software\\X /v a /d 1", "reg delete HKLM\\Software\\X", "Set-ItemProperty -Path HKLM:\\X -Name a -Value 1",
+                "bcdedit /set x y", "net user bob /add", "Set-ExecutionPolicy Unrestricted"):
+        assert safety.assess_command(cmd) == "high", cmd
+    assert safety.assess_command("reg query HKCU\\Software\\X") == "medium"

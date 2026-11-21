@@ -85,10 +85,12 @@ SPLIT_RE = re.compile(r"\s*(?:&&|\|\||;|\||&)\s*")
 WRAPPER_RE = re.compile(r"^(?:powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?)\s+(?:-\w+\s+)*(?:/c\s+|-command\s+|-c\s+)?", re.I)
 HIGH_RE = re.compile(
     r"^(?:del|erase|rm|rmdir|rd|remove-item|ri|format|diskpart|cipher|clear-disk|remove-partition|sdelete|shred|dd|"
-    r"truncate|takeown|icacls|attrib|reg\s+delete|remove-itemproperty|clear-recyclebin|wipefs|mkfs)\b", re.I)
+    r"truncate|takeown|icacls|attrib|reg\s+(?:add|delete|import|load|restore)|regedit|remove-itemproperty|set-itemproperty|"
+    r"new-itemproperty|bcdedit|set-executionpolicy|net\s+(?:user|localgroup)|sc\s+(?:delete|config)|schtasks\s+/(?:create|delete)|"
+    r"clear-recyclebin|wipefs|mkfs)\b", re.I)
 MEDIUM_RE = re.compile(
     r"^(?:shutdown|restart-computer|stop-computer|logoff|taskkill|stop-process|kill|pkill|net|reg|netsh|sc|schtasks|"
-    r"set-executionpolicy|set-itemproperty|new-itemproperty|winget|choco|pip|npm|msiexec|bcdedit|wmic|invoke-expression|iex|"
+    r"winget|choco|pip|npm|msiexec|bcdedit|wmic|invoke-expression|iex|"
     r"curl|wget|iwr|invoke-webrequest|move|mv|ren|rename|move-item|set-content|out-file|copy|cp|xcopy|robocopy|"
     r"new-item|mkdir|md|sudo|runas|start-service|stop-service|restart-service|disable-\w+|enable-\w+|set-\w+)\b", re.I)
 LOW_RE = re.compile(
@@ -96,7 +98,7 @@ LOW_RE = re.compile(
     r"ipconfig|ping|date|time|tasklist|systeminfo|ver|vol|tree|findstr|select-string|more|help|set|cls|clear|"
     r"python|py|code|notepad|calc|mspaint|msedge|chrome|firefox|steam|spotify|discord|open|xdg-open)\b", re.I)
 
-REASONS = {"high": "That could delete or destroy data.", "medium": "That changes something on this PC."}
+REASONS = {"high": "That could delete data or change core system settings.", "medium": "That changes something on this PC."}
 
 
 def assess_command(cmd):
