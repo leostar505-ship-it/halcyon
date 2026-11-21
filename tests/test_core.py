@@ -145,8 +145,7 @@ def test_lights_flow():
     lights.restore()
     lights.restore()
     lights.shutdown()
-    assert fb.log[:2] == [(128, 0, 0), (0, 128, 128)]
-    assert fb.log[2:] and set(fb.log[2:]) == {(15, 40, 128)}
+    assert fb.log and fb.log[-1] == (15, 40, 128)
     assert rgb.parse_ips("192.168.8.20, 192.168.8.21;192.168.8.22") == ["192.168.8.20", "192.168.8.21", "192.168.8.22"]
     assert rgb.scale((255, 190, 0), 0) == (0, 0, 0)
 
@@ -376,3 +375,14 @@ def test_scan_epic_folder_uses_launcher_uri(tmp_path):
     (d / "FortniteClient-Win64-Shipping.exe").write_text("x")
     hit = actions.scan_app("fortnite", roots=[str(tmp_path)])[0]
     assert actions.epic_uri_for(hit) == "com.epicgames.launcher://apps/Fortnite?action=launch&silent=true"
+
+
+def test_lights_queue_keeps_only_latest_paint():
+    from halcyon.rgb import Lights
+    L = Lights.__new__(Lights)
+    import queue
+    L.config = {"rgb_keepalive": 0}
+    L.q = queue.Queue()
+    for op in (("show", "warn"), ("show", "info"), ("restore", None), ("show", "alert")):
+        L.q.put(op)
+    assert L.next_op() == ("show", "alert")

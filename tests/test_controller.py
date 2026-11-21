@@ -208,3 +208,20 @@ def test_asleep_screen_stays_asleep_while_speaking(env):
     eyes.sleep_now()
     c.say("Hello there, sir.")
     assert eyes.activity == "sleep"
+
+
+def test_webhook_leaves_sleeping_screen_and_lights_alone(env):
+    c, hud, screen, voice, clip = env
+    from halcyon.screen import Eyes
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    eyes = Eyes()
+    screen.eyes = eyes
+    eyes.sleep_now()
+    shown = []
+    c.light_on = lambda level: shown.append(level)
+    screen.card = lambda *a, **k: shown.append("card")
+    ev = {"kind": "login", "raw": "AuthenticationSuccess", "user": "Sam", "device": "iPhone", "ip": "1.1.1.1",
+          "app": "Safari", "item": "", "message": "", "at": time.time()}
+    c.on_webhook(ev)
+    assert shown == [] and eyes.activity == "sleep"

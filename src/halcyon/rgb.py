@@ -454,14 +454,19 @@ class Lights:
             op = self.q.get(timeout=wait) if wait > 0 else self.q.get()
         except queue.Empty:
             return ("beat", None)
+        paint_ops = ("show", "restore", "default")
         while True:
             try:
                 nxt = self.q.get_nowait()
             except queue.Empty:
                 return op
-            if nxt != op:
-                self.q.queue.appendleft(nxt)
-                return op
+            if nxt == op:
+                continue
+            if op[0] in paint_ops and nxt[0] in paint_ops:
+                op = nxt
+                continue
+            self.q.queue.appendleft(nxt)
+            return op
 
     def loop(self):
         while True:

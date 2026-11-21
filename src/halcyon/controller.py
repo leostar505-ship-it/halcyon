@@ -370,9 +370,11 @@ class Controller:
             return
         level = ev.get("level") or webhook.LEVEL.get(ev["kind"], "info")
         expr = ev.get("expr") or webhook.EXPR.get(ev["kind"], "curious")
-        self.cues.play("alert" if level == "alert" else "info")
-        self.light_on(level)
-        self.screen.card(webhook.card_lines(ev), level, expr)
+        quiet = bool(getattr(self.screen.eyes, "held", False))
+        if not quiet:
+            self.cues.play("alert" if level == "alert" else "info")
+            self.light_on(level)
+            self.screen.card(webhook.card_lines(ev), level, expr)
         def reveal():
             self.hud.begin(True)
             self.hud.level(level)
