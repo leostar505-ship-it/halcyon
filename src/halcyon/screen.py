@@ -472,6 +472,8 @@ class Eyes:
                 if fm.horizontalAdvance(text + value) <= CARD_W or fs <= 8:
                     break
                 fs -= 1
+            while fm.horizontalAdvance(text + value) > CARD_W and len(value) > 3:
+                value = value[:-2].rstrip() + "\u2026" if not value.endswith("\u2026") else value[:-2] + "\u2026"
             p.setFont(self.font)
             p.setOpacity(a)
             p.setPen(qcol(self.col["label"]))

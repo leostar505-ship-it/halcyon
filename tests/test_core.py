@@ -413,3 +413,11 @@ def test_exe_with_arguments_is_not_low_risk():
     assert safety.assess_command('"C:\\Python\\python.exe" -c "print(7)"') == "medium"
     assert safety.assess_command("python script.py") == "medium"
     assert safety.assess_command('"C:\\Games\\Fortnite\\fortnite.exe"') == "low"
+
+
+def test_card_lines_are_clipped():
+    from halcyon import webhook
+    ev = {"kind": "playback", "user": "Alex", "item": "Harry Potter and the Deathly Hallows Part 2 (2011) Extended Edition",
+          "device": "Smart TV", "app": "Jellyfin", "ip": ""}
+    lines = dict(webhook.card_lines(ev))
+    assert len(lines["Playing"]) <= webhook.CARD_MAX and lines["Playing"].endswith("…")

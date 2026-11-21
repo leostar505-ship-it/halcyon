@@ -84,6 +84,14 @@ class Suppressor:
             return False, ev
 
 
+CARD_MAX = 22
+
+
+def clip(text, limit=CARD_MAX):
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "\u2026"
+
+
 def card_lines(ev):
     kind = ev["kind"]
     clock = time.strftime("%H:%M", time.localtime(ev.get("at", time.time())))
@@ -101,7 +109,7 @@ def card_lines(ev):
     else:
         lines = [("User", ev["user"] or "unknown"), ("Device", ev["device"] or "unknown"),
                  ("IP", ev["ip"] or "unknown"), ("App", ev["app"] or "unknown")]
-    return [(a, b) for a, b in lines if b]
+    return [(a, clip(b)) for a, b in lines if b]
 
 
 class WebhookServer:
