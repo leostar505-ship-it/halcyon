@@ -35,7 +35,7 @@ class Controller:
         self.registry = Registry(config)
         self.clipboard_cb = clipboard_cb or (lambda text: None)
         self.lock = threading.Lock()
-        self.suppressor = webhook.Suppressor(config.get("webhook_cooldown"))
+        self.suppressor = webhook.Suppressor(config.get("webhook_cooldown"), config.get("webhook_escalate"), config.get("admin_users"))
         self.answers = queue.Queue()
         self.asking = False
         self.task = None
@@ -319,8 +319,8 @@ class Controller:
         announce, ev = self.suppressor.check(ev)
         if not announce:
             return
-        level = webhook.LEVEL.get(ev["kind"], "info")
-        expr = webhook.EXPR.get(ev["kind"], "curious")
+        level = ev.get("level") or webhook.LEVEL.get(ev["kind"], "info")
+        expr = ev.get("expr") or webhook.EXPR.get(ev["kind"], "curious")
         self.screen.card(webhook.card_lines(ev), level, expr)
         with self.lock:
             self.hud.begin(True)

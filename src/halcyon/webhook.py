@@ -14,8 +14,8 @@ KIND_MAP = {
     "shutdown": "shutdown", "serverstop": "shutdown",
 }
 
-LEVEL = {"login": "warn", "failed": "alert", "shutdown": "alert", "playback": "info", "added": "info", "other": "info"}
-EXPR = {"login": "curious", "failed": "suspicious", "shutdown": "sad", "playback": "happy", "added": "happy",
+LEVEL = {"login": "info", "failed": "warn", "shutdown": "alert", "playback": "info", "added": "info", "other": "info"}
+EXPR = {"login": "happy", "failed": "suspicious", "shutdown": "sad", "playback": "happy", "added": "happy",
         "other": "curious"}
 
 
@@ -48,9 +48,10 @@ def normalise(payload):
 
 
 class Suppressor:
-    def __init__(self, cooldown=120, escalate=5):
+    def __init__(self, cooldown=120, escalate=3, admins=("admin", "leo")):
         self.cooldown = cooldown
         self.escalate = escalate
+        self.admins = {a.lower() for a in admins}
         self.seen = collections.defaultdict(collections.deque)
         self.escalated = {}
         self.lock = threading.Lock()
@@ -58,6 +59,11 @@ class Suppressor:
     def check(self, ev, now=None):
         now = now if now is not None else time.monotonic()
         key = (ev["kind"], ev["user"].lower(), ev["device"].lower() if ev["kind"] == "playback" else "")
+        if ev["kind"] == "failed" and ev["user"].lower() in self.admins:
+            ev = dict(ev)
+            ev["level"] = "alert"
+            ev["expr"] = "angry"
+            ev["admin"] = True
         with self.lock:
             q = self.seen[key]
             while q and now - q[0] > self.cooldown:
@@ -72,6 +78,8 @@ class Suppressor:
                 ev = dict(ev)
                 ev["message"] = "%d failed logins in the last %d minutes" % (len(q), max(1, self.cooldown // 60))
                 ev["repeated"] = len(q)
+                ev["level"] = "alert"
+                ev["expr"] = "angry"
                 return True, ev
             return False, ev
 
@@ -83,7 +91,7 @@ def card_lines(ev):
     if kind == "shutdown":
         lines = [("Server", "shut down"), ("Since", clock), ("Status", "offline")]
     elif kind == "failed":
-        lines = [("Login", "failed"), ("User", ev["user"] or "unknown"), ("Device", ev["device"] or "unknown"),
+        lines = [("Login", "admin failed" if ev.get("admin") else "failed"), ("User", ev["user"] or "unknown"), ("Device", ev["device"] or "unknown"),
                  ("IP", ev["ip"] or "unknown")]
     elif kind == "playback":
         lines = [("User", ev["user"] or "unknown"), ("Playing", ev["item"] or "a film"),

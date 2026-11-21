@@ -163,6 +163,10 @@ def fallback_line(ev):
     if kind == "login":
         return "Sir, %s has just logged on." % user
     if kind == "failed":
+        if ev.get("admin"):
+            return "Sir, someone just failed to log in to the %s account." % (ev.get("user") or "admin")
+        if ev.get("repeated"):
+            return "Sir, there are repeated failed logins. It may be a break in attempt."
         return "Sir, there has been a failed login attempt."
     if kind == "playback":
         item = ev.get("item")

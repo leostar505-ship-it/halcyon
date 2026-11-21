@@ -20,6 +20,7 @@ EXPR = {
     "happy": dict(hs=1, ws=1, tc=0, slant=0, bc=.1, bcv=.24, hl=1, hr=1),
     "curious": dict(hs=1.04, ws=1, tc=0, slant=0, bc=0, bcv=0, hl=1.12, hr=.94, tl=0, tr=.22),
     "suspicious": dict(hs=.82, ws=1.05, tc=.3, slant=.85, bc=.08, bcv=0, hl=1, hr=1),
+    "angry": dict(hs=.7, ws=1.1, tc=.45, slant=1.35, bc=0, bcv=0, hl=1, hr=1),
     "sad": dict(hs=1.06, ws=.94, tc=.1, slant=-1.15, bc=0, bcv=0, hl=1, hr=1),
     "surprised": dict(hs=1.22, ws=.88, tc=0, slant=0, bc=0, bcv=0, hl=1, hr=1),
     "sleepy": dict(hs=.5, ws=1, tc=.35, slant=0, bc=.05, bcv=0, hl=1, hr=1),

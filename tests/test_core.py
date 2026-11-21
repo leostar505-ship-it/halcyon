@@ -75,9 +75,16 @@ def test_normalise_and_suppress():
     assert results[0] is True and not any(results[1:])
     later = sup.check(dict(ev), now=base + 200)[0]
     assert later is True
+    assert ev["kind"] == "login" and webhook.LEVEL["login"] == "info" and webhook.EXPR["login"] == "happy"
     bad = webhook.normalise({"event": "AuthenticationFailure", "user": "Alex"})
-    out = [sup.check(dict(bad), now=base + i)[0] for i in range(6)]
-    assert out[0] is True and out[4] is True and out.count(True) == 2
+    sup = webhook.Suppressor(cooldown=120)
+    seen = [sup.check(dict(bad), now=base + i) for i in range(6)]
+    assert [a for a, _ in seen] == [True, False, True, False, False, False]
+    assert seen[0][1].get("level") is None
+    assert seen[2][1]["level"] == "alert" and seen[2][1]["expr"] == "angry"
+    admin = webhook.normalise({"event": "AuthenticationFailure", "user": "Leo"})
+    ok, out = webhook.Suppressor(cooldown=120).check(admin, now=base)
+    assert ok and out["level"] == "alert" and out["expr"] == "angry" and out["admin"]
 
 
 def test_card_lines():

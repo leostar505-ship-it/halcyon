@@ -17,6 +17,8 @@ DEFAULTS = {
     "webhook_port": 8765,
     "webhook_token": "",
     "webhook_cooldown": 120,
+    "webhook_escalate": 3,
+    "admin_users": ["admin", "leo"],
     "server_host": "192.168.8.50",
     "server_user": "leo",
     "wake_url": "",
