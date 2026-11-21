@@ -43,6 +43,9 @@ class Ctx:
     def facts(self):
         return self._c.self_facts()
 
+    def think(self, text, pause=0.7):
+        self._c.think(text, pause)
+
 
 class Controller:
     def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None, cues=None):
@@ -98,6 +101,32 @@ class Controller:
         self.hud.state("listening")
         self.screen.set_activity("none")
         self.screen.set_expression("curious")
+
+    def think(self, text, pause=0.7):
+        text = safety.short(str(text or "").strip(), 70)
+        if not text:
+            return
+        if not getattr(self, "_thinking", False):
+            self._thinking = True
+            self.hud.send("mini", True)
+            self.hud.job_start()
+            self.screen.set_activity("think")
+        prev = getattr(self, "_think_job", None)
+        if prev is not None:
+            self.hud.job_set(prev, None, "done")
+        self._think_job = self.hud.job_add(text, "run")
+        if pause:
+            time.sleep(pause)
+
+    def end_think(self):
+        if getattr(self, "_thinking", False):
+            prev = getattr(self, "_think_job", None)
+            if prev is not None:
+                self.hud.job_set(prev, None, "done")
+            self._think_job = None
+            self._thinking = False
+            self.hud.job_end()
+            self.hud.send("mini", False)
 
     def say(self, text, show=None, reveal=None, remember=True):
         shown = text if show is None else show
@@ -335,10 +364,13 @@ class Controller:
             self.hud.job_end()
             self.hud.send("mini", False)
         self.hud.state("thinking")
+        if decision.get("thought"):
+            self.think(decision["thought"], 0.6)
         try:
             res = self.registry.run(name, self.ctx, args)
         except Exception as exc:
             res = {"say": "That action failed, sir.", "expr": "sad", "level": "warn", "detail": str(exc)}
+        self.end_think()
         res = res or {"say": "Done, sir."}
         level = res.get("level", "info")
         self.hud.level(level)

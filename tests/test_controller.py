@@ -270,3 +270,22 @@ def test_high_risk_command_warns_in_red_then_asks(env):
     assert voice.spoken[0].startswith("Careful, sir.")
     assert asked and asked[0][1] == "alert" and asked[0][2] == "worried"
     assert voice.spoken[-1] == "Cancelled, sir."
+
+
+def test_update_question_shows_thinking_steps(env, monkeypatch):
+    c, hud, screen, voice, clip = env
+    from halcyon import actions
+    monkeypatch.setattr(actions, "github_updates", lambda: ["fix lights"])
+    steps = []
+    monkeypatch.setattr(c, "think", lambda text, pause=0.7: steps.append(text))
+    c.registry.run("about_self", c.ctx, {"question": "what was in the last update"})
+    assert steps[0] == "You want the update log"
+    assert "GitHub" in steps[1] and steps[2] == "Checking GitHub"
+
+
+def test_think_adds_and_finishes_job_lines(env):
+    c, hud, screen, voice, clip = env
+    c.think("one", 0)
+    c.think("two", 0)
+    c.end_think()
+    assert c._thinking is False

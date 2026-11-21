@@ -632,11 +632,18 @@ def about_self(ctx, args):
     question = str(args.get("question", "")).strip()
     low = question.lower()
     facts = list(ctx.facts())
-    if any(w in low for w in ("update", "patch", "change", "new", "latest", "version", "release")):
+    wants_updates = any(w in low for w in ("update", "patch", "change", "new", "latest", "version", "release"))
+    if wants_updates:
+        ctx.think("You want the update log")
+        ctx.think("Where would updates be? On GitHub")
+        ctx.think("Checking GitHub", 0.3)
         ctx.say("Checking GitHub for the latest patch notes, sir.")
         try:
             facts.append("Recent updates, newest first: " + " | ".join(github_updates()))
         except Exception as exc:
             facts.append("GitHub could not be reached: %s" % exc)
+    if not wants_updates:
+        ctx.think("Looking at my own settings", 0.4)
+    ctx.think("Working out the answer", 0.0)
     answer = brain.answer_from_facts(question, "\n".join(facts), ctx.config.get("router_model"))
     return {"say": answer or "I couldn't work that out, sir.", "expr": "happy"}
