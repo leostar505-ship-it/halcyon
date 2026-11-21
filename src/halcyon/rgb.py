@@ -315,6 +315,7 @@ class Lights:
                 self.backends.append(Corsair())
         self.q = queue.Queue()
         self.active = False
+        self.last = None
         self.results = {}
         self.logfile = None
         self.thread = threading.Thread(target=self.loop, daemon=True)
@@ -404,9 +405,11 @@ class Lights:
             self.results[name] = "error: %s" % exc
         self.log("%s %s %s" % (name, c, self.results[name]))
 
-    def paint(self, rgb):
+    def paint(self, rgb, only_local=False):
         c = scale(rgb, self.config.get("rgb_brightness"))
-        threads = [threading.Thread(target=self.paint_one, args=(b, c), daemon=True) for b in self.backends]
+        self.last = rgb
+        targets = [b for b in self.backends if not (only_local and isinstance(b, Govee))]
+        threads = [threading.Thread(target=self.paint_one, args=(b, c), daemon=True) for b in targets]
         for t in threads:
             t.start()
         for t in threads:
@@ -426,7 +429,14 @@ class Lights:
         return out
 
     def next_op(self):
-        op = self.q.get()
+        try:
+            wait = float(self.config.get("rgb_keepalive") or 0)
+        except (KeyError, TypeError, ValueError):
+            wait = 0.0
+        try:
+            op = self.q.get(timeout=wait) if wait > 0 else self.q.get()
+        except queue.Empty:
+            return ("beat", None)
         while True:
             try:
                 nxt = self.q.get_nowait()
@@ -457,6 +467,8 @@ class Lights:
                 elif op == "default":
                     self.paint(self.default_colour())
                     self.active = False
+                elif op == "beat" and self.enabled():
+                    self.paint(self.last if self.last is not None else self.default_colour(), only_local=True)
             except Exception:
                 pass
 

@@ -14,6 +14,7 @@ DEFAULTS = {
     "voice_muted": False,
     "chatterbox_url": "http://127.0.0.1:8123",
     "chatterbox_device": "cpu",
+    "rgb_keepalive": 20,
     "router_model": "haiku",
     "task_model": "sonnet",
     "task_timeout": 600,
