@@ -229,14 +229,22 @@ def main(argv=None):
         trace.write("exited\n")
         trace.flush()
         os._exit(0)
+    def shut():
+        for fn in (hotkey.stop if hotkey else None, listener.stop, screen.stop, webhook_server.stop, chatterbox.stop, voice.stop):
+            if fn is None:
+                continue
+            try:
+                fn()
+            except Exception:
+                pass
+
+    worker = threading.Thread(target=shut, daemon=True)
+    worker.start()
+    worker.join(4)
     try:
-        if hotkey:
-            hotkey.stop()
-        listener.stop()
-        screen.stop()
-        webhook_server.stop()
         chatterbox.stop()
-        voice.stop()
     except Exception:
         pass
-    return code
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)

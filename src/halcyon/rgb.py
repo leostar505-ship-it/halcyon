@@ -219,6 +219,7 @@ class OpenRGB:
         try:
             from openrgb import OpenRGBClient
             self.client = OpenRGBClient(self.host, self.port, name="Halcyon")
+            self.connected_at = time.monotonic()
             return True
         except Exception:
             self.client = None
@@ -235,6 +236,9 @@ class OpenRGB:
 
     def colour(self, rgb, tint=None):
         from openrgb.utils import RGBColor
+        if self.client is not None and time.monotonic() - getattr(self, "connected_at", 0) > 30:
+            self.close()
+            self.sized = False
         self.grow_zones()
         last = None
         for attempt in (1, 2):
@@ -381,7 +385,7 @@ class Lights:
         if self.enabled():
             self.q.put(("default", None))
         self.q.put(("close", None))
-        self.thread.join(6)
+        self.thread.join(3)
 
     def set_govee_ips(self, text):
         for b in self.backends:

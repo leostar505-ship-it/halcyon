@@ -624,8 +624,9 @@ def github_updates():
                         (c.get("commit", {}).get("message") or "").splitlines()[0]) for c in data]
 
 
-@action("about_self", "Answer questions about Halcyon itself: its settings, what hardware the voice runs on, lights, version, "
-        "or what changed in the latest update. args: question")
+@action("about_self", "Answer questions about Halcyon itself, its settings, which processor (CPU or GPU) the voice runs on, "
+        "lights, version, or what is new, updated, changed or fixed in the latest update, patch notes or changelog "
+        "(this reads GitHub itself, never use the full assistant for that). args: question")
 def about_self(ctx, args):
     from . import brain
     question = str(args.get("question", "")).strip()

@@ -131,8 +131,8 @@ class Controller:
         self.hud.level(level)
         self.screen.set_level(level)
         self.screen.set_expression(expr)
-        if level == "alert":
-            self.light_on("alert")
+        if level in ("warn", "alert"):
+            self.light_on(level)
         self.screen.footer("Say yes or no", "warn")
         self.say(question)
         self.hud.state("listening")
@@ -156,7 +156,7 @@ class Controller:
         self.hud.level("info")
         self.screen.set_level("info")
         self.screen.footer("")
-        if level == "alert":
+        if level in ("warn", "alert"):
             self.light_off()
         self.hud.job_set(jid, bullet + (" - approved" if result else " - declined"), "done" if result else "fail")
         self.history.add("User", "yes" if result else "no")

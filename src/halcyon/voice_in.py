@@ -8,11 +8,11 @@ import numpy as np
 
 from .vendor import whispercpp as W
 
-CHUNK = 4000
+CHUNK = 1600
 RATE = 16000
 LISTEN_TIMEOUT = 7.0
 DEAF_AFTER_WAKE = 0.35
-MAX_COMMAND_CHUNKS = 48
+MAX_COMMAND_CHUNKS = 120
 LEAD_INS = {"hey", "hi", "hello", "okay", "ok", "yo", "oi", "hay", "heya", "hiya", "hei", "o", "k"}
 CANCEL_RE = re.compile(r"^(never ?mind|cancel|forget it|stop)\b", re.I)
 
@@ -144,8 +144,8 @@ class Listener:
         except Exception as exc:
             self.on_status("Voice engine problem: %s" % exc)
             return
-        wake_seg = W.Segmenter(end_quiet=3, min_voiced=2, max_chunks=20)
-        talk_seg = W.Segmenter(end_quiet=4, min_voiced=1, max_chunks=MAX_COMMAND_CHUNKS, floor=120.0)
+        wake_seg = W.Segmenter(end_quiet=5, min_voiced=4, max_chunks=50, preroll=5)
+        talk_seg = W.Segmenter(end_quiet=6, min_voiced=2, max_chunks=MAX_COMMAND_CHUNKS, floor=120.0, preroll=5)
         started = 0.0
         deaf_until = 0.0
         words = self.config.get("wake_words")

@@ -216,6 +216,10 @@ class Server:
         if self.proc is not None:
             try:
                 self.proc.terminate()
+                try:
+                    self.proc.wait(2)
+                except Exception:
+                    self.proc.kill()
             except OSError:
                 pass
         self.proc = None

@@ -247,7 +247,8 @@ class Server:
 
 
 class Segmenter:
-    def __init__(self, end_quiet=3, min_voiced=2, max_chunks=24, floor=300.0):
+    def __init__(self, end_quiet=3, min_voiced=2, max_chunks=24, floor=300.0, preroll=2):
+        self.preroll = preroll
         self.end_quiet = end_quiet
         self.min_voiced = min_voiced
         self.max_chunks = max_chunks
@@ -273,7 +274,7 @@ class Segmenter:
             self.noise = self.noise * 0.9 + rms * 0.1
         if not self.active:
             self.pre.append(data)
-            self.pre = self.pre[-2:]
+            self.pre = self.pre[-self.preroll:]
             if loud:
                 self.voiced += 1
                 if self.voiced >= self.min_voiced:
