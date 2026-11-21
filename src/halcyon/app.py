@@ -6,9 +6,9 @@ import time
 
 from PySide6.QtCore import QLockFile, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import NAME, __version__
+from . import EXPANSION, NAME, __version__
 from .actions import Registry
 from .config import Config, actions_dir, config_dir
 from .controller import Controller
@@ -157,6 +157,15 @@ def main(argv=None):
     act("Settings...", settings)
     act("Open settings file", lambda: open_path(str(config.path)))
     app.aboutToQuit.connect(lights.shutdown)
+    def about():
+        box = QMessageBox()
+        box.setWindowTitle("About %s" % NAME)
+        box.setWindowIcon(icon)
+        box.setText("%s %s\n\n%s" % (NAME, __version__, EXPANSION))
+        dialogs.append(box)
+        box.show()
+
+    act("About", about)
     act("Quit", app.quit)
     tray.setContextMenu(menu)
     tray.show()
