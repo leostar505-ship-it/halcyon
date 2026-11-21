@@ -515,6 +515,19 @@ class Panel(QWidget):
             gr.addWidget(box)
         l2.addLayout(gr)
         lay.addWidget(c2)
+        cg = card()
+        lg = QVBoxLayout(cg)
+        lg.addWidget(row_label("Govee lights", "h"))
+        lg.addWidget(row_label("Turn on LAN Control for each light in the Govee Home app. Halcyon scans for them. If none are found, type their IP addresses (see your router), separated by commas.", "sub"))
+        gr2 = QHBoxLayout()
+        self.gv_ips = QLineEdit(self.config.get("govee_ips") or "")
+        self.gv_ips.setPlaceholderText("for example 192.168.8.144")
+        gb = QPushButton("Save and use")
+        gb.clicked.connect(self.save_govee)
+        gr2.addWidget(self.gv_ips, 1)
+        gr2.addWidget(gb)
+        lg.addLayout(gr2)
+        lay.addWidget(cg)
         c3 = card()
         l3 = QVBoxLayout(c3)
         l3.addWidget(row_label("Status", "h"))
@@ -536,6 +549,13 @@ class Panel(QWidget):
         self.paint_colour()
         QTimer(self, interval=2000, timeout=self.refresh_lights_status).start()
         return w
+
+    def save_govee(self):
+        self.config.set("govee_ips", self.gv_ips.text().strip())
+        if self.lights is not None:
+            self.lights.set_govee_ips(self.gv_ips.text())
+            self.lights.apply_default()
+        self.lt_note.setText("Govee addresses saved.")
 
     def refresh_lights_status(self):
         if self.lights is None or not hasattr(self.lights, "status"):

@@ -35,38 +35,79 @@ class Govee:
         self.on_found = on_found
         self.next_scan = 0.0
 
+    def local_ips(self):
+        out = []
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ip = info[4][0]
+                if not ip.startswith(("127.", "169.254.")) and ip not in out:
+                    out.append(ip)
+        except OSError:
+            pass
+        try:
+            t = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            t.connect(("10.255.255.255", 1))
+            ip = t.getsockname()[0]
+            t.close()
+            if ip not in out and not ip.startswith("127."):
+                out.insert(0, ip)
+        except OSError:
+            pass
+        return out
+
     def _listener(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("", 4002))
-        try:
-            s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                         struct.pack("4sl", socket.inet_aton(GOVEE_GROUP), socket.INADDR_ANY))
-        except OSError:
-            pass
-        s.settimeout(0.4)
+        for ip in self.local_ips() or ["0.0.0.0"]:
+            try:
+                s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                             struct.pack("4s4s", socket.inet_aton(GOVEE_GROUP), socket.inet_aton(ip)))
+            except OSError:
+                pass
+        s.settimeout(0.3)
         return s
+
+    def collect(self, s, found, seconds):
+        end = time.time() + seconds
+        while time.time() < end:
+            try:
+                data, addr = s.recvfrom(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                d = json.loads(data.decode("utf-8", "replace"))["msg"]
+            except (ValueError, KeyError):
+                continue
+            if d.get("cmd") == "scan":
+                data_ = d.get("data") or {}
+                ip = data_.get("ip") or addr[0]
+                data_["ip"] = ip
+                found[ip] = data_
 
     def scan(self, wait=2.0):
         found = {}
         s = self._listener()
+        msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserved"}}}).encode()
         try:
-            msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserved"}}}).encode()
-            s.sendto(msg, (GOVEE_GROUP, 4001))
-            end = time.time() + wait
-            while time.time() < end:
+            for ip in self.local_ips() or ["0.0.0.0"]:
                 try:
-                    data, _ = s.recvfrom(4096)
-                except socket.timeout:
-                    continue
+                    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                    s.sendto(msg, (GOVEE_GROUP, 4001))
                 except OSError:
-                    break
-                try:
-                    d = json.loads(data.decode("utf-8", "replace"))["msg"]
-                except (ValueError, KeyError):
-                    continue
-                if d.get("cmd") == "scan" and d.get("data", {}).get("ip"):
-                    found[d["data"]["ip"]] = d["data"]
+                    pass
+            self.collect(s, found, wait)
+            if not found:
+                for ip in self.local_ips():
+                    base = ip.rsplit(".", 1)[0]
+                    for n in range(1, 255):
+                        try:
+                            s.sendto(msg, ("%s.%d" % (base, n), 4001))
+                        except OSError:
+                            pass
+                self.collect(s, found, wait + 1.5)
         finally:
             s.close()
         return list(found.values())
@@ -298,6 +339,14 @@ class Lights:
             self.q.put(("default", None))
         self.q.put(("close", None))
         self.thread.join(6)
+
+    def set_govee_ips(self, text):
+        for b in self.backends:
+            if isinstance(b, Govee):
+                ips = parse_ips(text)
+                b.fixed = list(ips)
+                b.ips = list(ips)
+                b.next_scan = 0.0
 
     def remember_govee(self, ips):
         try:
