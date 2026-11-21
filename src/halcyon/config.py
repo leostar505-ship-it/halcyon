@@ -13,6 +13,7 @@ DEFAULTS = {
     "hotkey": "ctrl+alt+h",
     "voice_muted": False,
     "chatterbox_url": "http://127.0.0.1:8123",
+    "chatterbox_device": "cpu",
     "router_model": "haiku",
     "task_model": "sonnet",
     "task_timeout": 600,

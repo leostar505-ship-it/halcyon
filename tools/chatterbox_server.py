@@ -5,8 +5,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import perth
+import numpy as np
 import torch
-import torchaudio as ta
+import wave
 from chatterbox.tts import ChatterboxTTS
 
 SEED = 1
@@ -21,8 +22,14 @@ def synth(text):
     with lock:
         torch.manual_seed(SEED)
         wav = model.generate(text, exaggeration=EXAGGERATION, cfg_weight=CFG_WEIGHT)
+        arr = wav.detach().float().cpu().numpy().reshape(-1)
+        pcm = (np.clip(arr, -1.0, 1.0) * 32767).astype("<i2")
         buf = io.BytesIO()
-        ta.save(buf, wav.cpu(), model.sr, format="wav", encoding="PCM_S", bits_per_sample=16)
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(int(model.sr))
+            w.writeframes(pcm.tobytes())
         return buf.getvalue()
 
 
@@ -72,7 +79,21 @@ def main():
     ap.add_argument("--threads", type=int, default=4)
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
-    model = ChatterboxTTS.from_pretrained(device=args.device)
+    device = args.device
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            print("GPU not available, using CPU", flush=True)
+            device = "cpu"
+        else:
+            pick = 0
+            for i in range(torch.cuda.device_count()):
+                name = torch.cuda.get_device_name(i)
+                print("GPU %d: %s" % (i, name), flush=True)
+                if "Graphics" not in name:
+                    pick = i
+            torch.cuda.set_device(pick)
+            print("Using GPU %d: %s" % (pick, torch.cuda.get_device_name(pick)), flush=True)
+    model = ChatterboxTTS.from_pretrained(device=device)
     synth("Ready.")
     print("Chatterbox server ready on port %d" % args.port, flush=True)
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

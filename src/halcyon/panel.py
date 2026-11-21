@@ -59,6 +59,7 @@ class Bus(QObject):
     amp = Signal(float)
     lights = Signal(list)
     cbdone = Signal(bool)
+    gpudone = Signal(bool)
 
 
 class Core(QWidget):
@@ -220,6 +221,7 @@ class Panel(QWidget):
         self.bus.amp.connect(lambda v: self.core.set_amp(v))
         self.bus.lights.connect(self.got_lights)
         self.bus.cbdone.connect(self.cb_finished)
+        self.bus.gpudone.connect(self.gpu_finished)
         self.mic_stream = None
         self.mic_level = 0.0
         root = QHBoxLayout(self)
@@ -425,7 +427,9 @@ class Panel(QWidget):
         self.cb_start.clicked.connect(self.start_chatterbox)
         self.cb_stop = QPushButton("Stop")
         self.cb_stop.clicked.connect(self.stop_chatterbox)
-        for b in (self.cb_install, self.cb_start, self.cb_stop):
+        self.cb_gpu = QPushButton("Use my AMD GPU")
+        self.cb_gpu.clicked.connect(self.gpu_chatterbox)
+        for b in (self.cb_install, self.cb_gpu, self.cb_start, self.cb_stop):
             row2.addWidget(b)
         row2.addStretch(1)
         l2.addLayout(row2)
@@ -866,6 +870,29 @@ class Panel(QWidget):
         self.cb_install.setEnabled(True)
         self.cb_install.setText("Reinstall Chatterbox" if ok else "Install Chatterbox")
         self.refresh_voice()
+
+    def gpu_chatterbox(self):
+        from . import chatterbox_setup as CB
+        self.cb_gpu.setEnabled(False)
+        self.cb_gpu.setText("Installing GPU support...")
+
+        def job():
+            ok = False
+            try:
+                if self.chatterbox is not None:
+                    self.chatterbox.stop()
+                ok = CB.install_gpu(self.cb_log)
+                self.config.set("chatterbox_device", "cuda" if ok else "cpu")
+                if self.chatterbox is not None:
+                    self.chatterbox.start(self.cb_log)
+            except Exception as exc:
+                self.cb_log("GPU setup error: %s" % exc)
+            self.bus.gpudone.emit(ok)
+        self.run(job)
+
+    def gpu_finished(self, ok):
+        self.cb_gpu.setEnabled(True)
+        self.cb_gpu.setText("GPU on" if ok else "Use my AMD GPU")
 
     def start_chatterbox(self):
         if self.chatterbox is not None:

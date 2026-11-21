@@ -122,6 +122,27 @@ def install(log, clean=False):
     return True
 
 
+AMD_INDEX = "https://repo.amd.com/rocm/whl-multi-arch/"
+
+
+def install_gpu(log):
+    if not installed():
+        log("Install Chatterbox first.")
+        return False
+    vp = str(venv_python())
+    log("Installing the AMD GPU version of PyTorch (about 3 GB, can take 10 minutes or more)...")
+    code = stream([vp, "-m", "pip", "install", "--index-url", AMD_INDEX, "--extra-index-url", "https://pypi.org/simple",
+                   "torch[device-gfx1201]==2.9.1+rocm7.13.0", "torchaudio==2.9.0+rocm7.13.0"], log)
+    if code != 0:
+        log("The GPU install failed. Chatterbox will keep using the CPU.")
+        return False
+    r = subprocess.run([vp, "-c", "import torch;print(torch.cuda.is_available());print([torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])"],
+                       capture_output=True, text=True, creationflags=FLAGS, timeout=120)
+    out = (r.stdout or "").strip().splitlines()
+    log("GPU check: " + " ".join(out)[:200] if out else "GPU check printed nothing: " + (r.stderr or "")[-200:])
+    return bool(out) and out[0].strip() == "True"
+
+
 class Server:
     def __init__(self, config):
         self.config = config
@@ -140,7 +161,7 @@ class Server:
             return False
         port = self.config.get("chatterbox_url").rsplit(":", 1)[-1].strip("/")
         logf = open(root() / "server.log", "a", encoding="utf-8")
-        self.proc = subprocess.Popen([str(venv_python()), str(script), "--device", "cpu", "--port", port, "--threads", "4"],
+        self.proc = subprocess.Popen([str(venv_python()), str(script), "--device", self.config.get("chatterbox_device") or "cpu", "--port", port, "--threads", "4"],
                                      stdout=logf, stderr=logf, creationflags=FLAGS)
         log("Chatterbox is starting. The first start downloads the model (about 3 GB) and can take several minutes.")
         import threading
