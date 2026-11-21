@@ -9,7 +9,7 @@ import urllib.request
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
-from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QColorDialog, QComboBox, QSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import EXPANSION, NAME, __version__
@@ -55,6 +55,7 @@ class Bus(QObject):
     chat = Signal(str, str)
     state = Signal(str)
     amp = Signal(float)
+    lights = Signal(list)
 
 
 class Core(QWidget):
@@ -195,8 +196,9 @@ class Meter(QWidget):
 
 
 class Panel(QWidget):
-    def __init__(self, config, voice, hud, controller, events):
+    def __init__(self, config, voice, hud, controller, events, lights=None):
         super().__init__()
+        self.lights = lights
         self.hud_widget = hud
         self.controller = controller
         self.events = events
@@ -212,6 +214,7 @@ class Panel(QWidget):
         self.bus.chat.connect(self.add_chat)
         self.bus.state.connect(self.set_state)
         self.bus.amp.connect(lambda v: self.core.set_amp(v))
+        self.bus.lights.connect(self.got_lights)
         self.mic_stream = None
         self.mic_level = 0.0
         root = QHBoxLayout(self)
@@ -232,7 +235,7 @@ class Panel(QWidget):
         sl.addWidget(ver)
         self.stack = QStackedWidget()
         self.navs = []
-        for i, name in enumerate(("Overview", "Claude", "Voice engine", "Wake words")):
+        for i, name in enumerate(("Overview", "Claude", "Voice engine", "Wake words", "Lights")):
             b = QPushButton(name)
             b.setObjectName("nav")
             b.setCheckable(True)
@@ -251,6 +254,7 @@ class Panel(QWidget):
         self.stack.addWidget(self.page_claude())
         self.stack.addWidget(self.page_voice())
         self.stack.addWidget(self.page_wake())
+        self.stack.addWidget(self.page_lights())
         self.go(0)
         QTimer(self, interval=60, timeout=self.poll_mic).start()
         self.refresh_claude()
@@ -435,6 +439,123 @@ class Panel(QWidget):
         row.addLayout(right, 1)
         lay.addLayout(row, 1)
         return w
+
+    def page_lights(self):
+        w, lay = self.page("Lights", "Default colour and per-device colour balance.")
+        c = card()
+        cl = QVBoxLayout(c)
+        cl.addWidget(row_label("Default colour", "h"))
+        cl.addWidget(row_label("Every light returns to this after an event. Pick a preset or choose any colour.", "sub"))
+        self.sw = QPushButton()
+        self.sw.setMinimumHeight(54)
+        self.sw.clicked.connect(self.pick_colour)
+        cl.addWidget(self.sw)
+        row = QHBoxLayout()
+        for label, rgb in (("Blue", (30, 80, 255)), ("Cyan", (0, 200, 255)), ("Purple", (150, 60, 255)),
+                           ("Pink", (255, 60, 160)), ("Orange", (255, 110, 0)), ("Green", (40, 220, 90)),
+                           ("White", (255, 240, 220))):
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, v=rgb: self.set_default(v))
+            row.addWidget(b)
+        cl.addLayout(row)
+        self.lt_note = row_label("")
+        cl.addWidget(self.lt_note)
+        lay.addWidget(c)
+        c2 = card()
+        l2 = QVBoxLayout(c2)
+        l2.addWidget(row_label("Colour balance", "h"))
+        l2.addWidget(row_label("If a device looks washed out or tinted, lower the channel that is too strong.", "sub"))
+        dr = QHBoxLayout()
+        self.lt_dev = QComboBox()
+        self.lt_dev.currentTextChanged.connect(self.load_balance)
+        fb = QPushButton("Find devices")
+        fb.clicked.connect(self.find_lights)
+        dr.addWidget(self.lt_dev, 1)
+        dr.addWidget(fb)
+        l2.addLayout(dr)
+        gr = QHBoxLayout()
+        self.lt_gain = []
+        for lab in ("Red", "Green", "Blue"):
+            box = QSpinBox()
+            box.setRange(0, 100)
+            box.setSuffix(" %")
+            box.setValue(100)
+            box.valueChanged.connect(self.save_balance)
+            self.lt_gain.append(box)
+            gr.addWidget(QLabel(lab))
+            gr.addWidget(box)
+        l2.addLayout(gr)
+        lay.addWidget(c2)
+        lay.addStretch(1)
+        self.paint_colour()
+        return w
+
+    def current_default(self):
+        try:
+            return tuple(int(x) for x in self.config.get("rgb_default"))
+        except Exception:
+            return (30, 80, 255)
+
+    def paint_colour(self):
+        r, g, b = self.current_default()
+        self.sw.setText("#%02X%02X%02X   click to choose any colour" % (r, g, b))
+        self.sw.setStyleSheet("background:rgb(%d,%d,%d);color:%s;font-size:15px;" % (
+            r, g, b, "#000" if r + g + b > 380 else "#fff"))
+
+    def set_default(self, rgb):
+        self.config.set("rgb_default", [int(rgb[0]), int(rgb[1]), int(rgb[2])])
+        self.paint_colour()
+        if self.lights is not None:
+            self.lights.apply_default()
+            self.lt_note.setText("Applied to your lights.")
+        else:
+            self.lt_note.setText("Saved. Lights are not available right now.")
+
+    def pick_colour(self):
+        from PySide6.QtGui import QColor
+        col = QColorDialog.getColor(QColor(*self.current_default()), self, "Default colour")
+        if col.isValid():
+            self.set_default((col.red(), col.green(), col.blue()))
+
+    def find_lights(self):
+        if self.lights is None:
+            return
+        self.lt_note.setText("Looking for devices...")
+
+        def job():
+            try:
+                names = self.lights.device_names()
+            except Exception:
+                names = []
+            self.bus.lights.emit(names)
+        self.run(job)
+
+    def got_lights(self, names):
+        tweaks = self.config.get("rgb_tweaks") or {}
+        self.lt_dev.clear()
+        self.lt_dev.addItems(sorted(set(names) | set(tweaks)))
+        self.lt_note.setText("Found %d devices." % len(names) if names else "No devices found. Is OpenRGB or iCUE running?")
+
+    def load_balance(self, name):
+        vals = (self.config.get("rgb_tweaks") or {}).get(name, [100, 100, 100])
+        for box, v in zip(self.lt_gain, vals):
+            box.blockSignals(True)
+            box.setValue(int(v))
+            box.blockSignals(False)
+
+    def save_balance(self):
+        name = self.lt_dev.currentText()
+        if not name:
+            return
+        tweaks = dict(self.config.get("rgb_tweaks") or {})
+        vals = [b.value() for b in self.lt_gain]
+        if vals == [100, 100, 100]:
+            tweaks.pop(name, None)
+        else:
+            tweaks[name] = vals
+        self.config.set("rgb_tweaks", tweaks)
+        if self.lights is not None:
+            self.lights.apply_default()
 
     def add_log(self, text):
         self.log.appendPlainText("[%s] %s" % (time.strftime("%H:%M:%S"), text))

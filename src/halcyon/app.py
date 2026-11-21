@@ -132,7 +132,7 @@ def main(argv=None):
     def open_panel():
         if not panel_holder:
             from .panel import Panel
-            p = Panel(config, voice, hud, controller, SAMPLE_EVENTS)
+            p = Panel(config, voice, hud, controller, SAMPLE_EVENTS, lights)
             bridge.status.connect(p.note)
             panel_holder.append(p)
         panel_holder[0].show()
