@@ -1,9 +1,12 @@
 import argparse
 import io
 import json
+import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+os.environ.setdefault("MIOPEN_FIND_MODE", "FAST")
 import perth
 import numpy as np
 import torch
@@ -20,8 +23,10 @@ model = None
 
 def synth(text):
     with lock:
+        t0 = time.monotonic()
         torch.manual_seed(SEED)
         wav = model.generate(text, exaggeration=EXAGGERATION, cfg_weight=CFG_WEIGHT)
+        print("generated %d chars in %.1fs" % (len(text), time.monotonic() - t0), flush=True)
         arr = wav.detach().float().cpu().numpy().reshape(-1)
         pcm = (np.clip(arr, -1.0, 1.0) * 32767).astype("<i2")
         buf = io.BytesIO()
@@ -98,7 +103,8 @@ def main():
             print("Using GPU %d: %s" % (pick, torch.cuda.get_device_name(pick)), flush=True)
             INFO[0] = "ok device=gpu name=%s" % torch.cuda.get_device_name(pick)
     model = ChatterboxTTS.from_pretrained(device=device)
-    synth("Ready.")
+    for warm in ("Ready.", "Good evening, sir. All systems are running and I am ready for your next request."):
+        synth(warm)
     print("Chatterbox server ready on port %d" % args.port, flush=True)
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
 

@@ -441,3 +441,11 @@ def test_wrap_lines_clips_long_text():
     lines = hud.wrap_lines(text, fm, 600, 3)
     assert len(lines) == 3 and lines[-1].endswith("…")
     assert all(fm.horizontalAdvance(l) <= 600 for l in lines)
+
+
+def test_split_chunks_starts_with_first_sentence():
+    from halcyon.voice_out import split_chunks
+    out = split_chunks("One short sentence here. Another follows it. And a third one.")
+    assert out[0] == "One short sentence here."
+    assert " ".join(out) == "One short sentence here. Another follows it. And a third one."
+    assert split_chunks("no punctuation") == ["no punctuation"]

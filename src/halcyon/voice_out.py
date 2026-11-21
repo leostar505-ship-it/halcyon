@@ -2,6 +2,7 @@ import io
 import json
 import math
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -10,6 +11,18 @@ import urllib.request
 import wave
 
 import numpy as np
+
+def split_chunks(text, first_max=90, max_chars=160):
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x.strip()]
+    chunks = []
+    for sent in sentences:
+        limit = first_max if not chunks else max_chars
+        if chunks and len(chunks[-1]) + 1 + len(sent) <= max_chars and len(chunks) > 1:
+            chunks[-1] += " " + sent
+        else:
+            chunks.append(sent)
+    return chunks or [text]
+
 
 FLAGS = 0x08000000 if sys.platform == "win32" else 0
 
@@ -159,13 +172,41 @@ class Voice:
             on_amp(.35 + .65 * abs(math.sin(n * 1.7)) * abs(math.sin(n * .63 + 1)))
             time.sleep(.09)
 
-    def _speak_chatterbox(self, text, on_amp):
-        self.engine_name = "chatterbox"
+    def _fetch_chatterbox(self, text):
         req = urllib.request.Request(self.config.get("chatterbox_url") + "/tts",
                                      data=json.dumps({"text": text}).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as resp:
-            audio = ensure_pcm16(resp.read())
+            return ensure_pcm16(resp.read())
+
+    def _speak_chatterbox(self, text, on_amp):
+        self.engine_name = "chatterbox"
+        parts = split_chunks(text)
+        slots = [{"done": threading.Event(), "audio": None, "err": None} for _ in parts]
+
+        def fetcher():
+            for part, slot in zip(parts, slots):
+                if self.stop_flag.is_set():
+                    slot["done"].set()
+                    continue
+                try:
+                    slot["audio"] = self._fetch_chatterbox(part)
+                except Exception as exc:
+                    slot["err"] = exc
+                slot["done"].set()
+
+        threading.Thread(target=fetcher, daemon=True).start()
+        for i, slot in enumerate(slots):
+            slot["done"].wait()
+            if self.stop_flag.is_set():
+                return
+            if slot["err"] is not None:
+                if i == 0:
+                    raise slot["err"]
+                return
+            self._play_chatterbox(slot["audio"], on_amp)
+
+    def _play_chatterbox(self, audio, on_amp):
         if self.stop_flag.is_set():
             return
         with wave.open(io.BytesIO(audio)) as w:
