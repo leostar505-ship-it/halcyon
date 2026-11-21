@@ -292,3 +292,64 @@ def test_open_app_already_open_by_name(monkeypatch):
     res = actions.open_app(ctx, {"app": "chrome"})
     assert "already open" in ctx.asked[0] and launched == [] and "Leaving Chrome" in res["say"]
 
+
+
+def test_history_cap_expiry_and_clear():
+    from halcyon.history import History
+    now = [1000.0]
+    h = History(turns=2, minutes=1, clock=lambda: now[0])
+    for i in range(6):
+        h.add("User", "q%d" % i)
+    assert [t for _, t in h.recent()] == ["q2", "q3", "q4", "q5"]
+    now[0] += 61
+    assert h.recent() == []
+    h.add("User", "  spaced   out  ")
+    h.add("Halcyon", "")
+    assert h.text() == "User: spaced out"
+    assert h.clear() == 1 and h.recent() == []
+    h.add("User", "x" * 400)
+    assert len(h.recent()[0][1]) == 300
+    off = History(turns=0, minutes=30)
+    off.add("User", "hello")
+    assert off.recent() == []
+
+
+def test_clear_history_and_command_fast_routes():
+    for phrase in ("clear history", "Clear the conversation history.", "forget our conversation", "reset the chat",
+                   "start over", "new conversation", "wipe my history", "forget everything"):
+        assert brain.fast_route(phrase)["action"] == "clear_history", phrase
+    for phrase in ("clear the table", "forget it", "what is the history of rome"):
+        r = brain.fast_route(phrase)
+        assert r is None or r["action"] != "clear_history", phrase
+    r = brain.fast_route("run command ipconfig /all")
+    assert r["action"] == "run_command" and r["args"]["command"] == "ipconfig /all"
+    r = brain.fast_route("Execute the terminal command dir")
+    assert r["action"] == "run_command" and r["args"]["command"] == "dir"
+    assert brain.fast_route("run chrome")["action"] == "open_app"
+
+
+def test_router_prompt_carries_history(monkeypatch):
+    seen = []
+    monkeypatch.setattr(brain, "ask_model", lambda model, prompt, timeout=30: seen.append(prompt) or
+                        '{"route":"chat","say":"Tomorrow looks dry, sir."}')
+    out = brain.route("and tomorrow", "- x: y", "haiku", history="User: weather today\nHalcyon: It is sunny, sir.")
+    assert out["route"] == "chat"
+    assert "Recent conversation" in seen[0] and "It is sunny, sir." in seen[0]
+    brain.route("and tomorrow", "- x: y", "haiku")
+    assert "Recent conversation" not in seen[1]
+
+
+def test_run_command_action():
+    import sys
+    from halcyon import actions
+    ctx = AskCtx(True)
+    py = '"%s" -c ' % sys.executable
+    res = actions.run_command(ctx, {"command": py + '"print(42)"'})
+    assert res["say"] == "42"
+    res = actions.run_command(ctx, {"command": py + '"import sys; sys.exit(3)"'})
+    assert "failed with code 3" in res["say"]
+    res = actions.run_command(ctx, {"command": py + '"pass"'})
+    assert res["say"] == "Done, sir."
+    for bad in ("format c:", "rm -rf /", "diskpart", "del /s /q c:\\", "buy me a skin"):
+        assert "won't run" in actions.run_command(ctx, {"command": bad})["say"], bad
+    assert "didn't catch" in actions.run_command(ctx, {"command": " "})["say"]

@@ -39,3 +39,24 @@ def test_frame_encoding():
         sizes.append(len(data))
     assert max(sizes) < 40000
     assert sum(sizes) > 0
+
+
+def test_sleep_is_held_until_woken():
+    e = Eyes()
+    e.sleep_now()
+    e.set_activity("speak")
+    e.set_expression("happy")
+    e.set_activity("none")
+    assert e.activity == "sleep" and e.expr == "neutral"
+    e.wake()
+    e.set_activity("speak")
+    assert e.activity == "speak"
+
+
+def test_card_releases_held_sleep():
+    e = Eyes()
+    e.sleep_now()
+    e.open_card([("User", "Alex")], "warn", "curious")
+    assert e.held is False
+    e.set_activity("speak")
+    assert e.activity == "speak"

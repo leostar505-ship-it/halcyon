@@ -5,6 +5,7 @@ import threading
 import time
 
 from .cues import NullCues
+from .history import History
 from .rgb import NullLights
 from . import brain, safety, webhook
 from .actions import Registry
@@ -29,6 +30,9 @@ class Ctx:
     def ask_yes_no(self, question, bullet):
         return self._c.ask_yes_no(question, bullet)
 
+    def clear_history(self):
+        return self._c.history.clear()
+
 
 class Controller:
     def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None, cues=None):
@@ -46,6 +50,7 @@ class Controller:
         self.suppressor = webhook.Suppressor(config.get("webhook_cooldown"), config.get("webhook_escalate"), config.get("admin_users"))
         self.answers = queue.Queue()
         self.asking = False
+        self.history = History(config.get("history_turns"), config.get("history_minutes"))
         self.task = None
         self.status_cb = lambda s: None
         self.ctx = Ctx(self)
@@ -84,8 +89,10 @@ class Controller:
         self.screen.set_activity("none")
         self.screen.set_expression("curious")
 
-    def say(self, text, show=None, reveal=None):
+    def say(self, text, show=None, reveal=None, remember=True):
         shown = text if show is None else show
+        if remember:
+            self.history.add("Halcyon", text)
         if self.listener:
             self.listener.paused = True
 
@@ -138,6 +145,7 @@ class Controller:
         self.screen.set_level("info")
         self.screen.footer("")
         self.hud.job_set(jid, bullet + (" - approved" if result else " - declined"), "done" if result else "fail")
+        self.history.add("User", "yes" if result else "no")
         return bool(result)
 
     def light_on(self, level):
@@ -203,7 +211,9 @@ class Controller:
             self.finish_hud()
             self.settle()
             return
-        decision = brain.route(text, self.registry.describe(), self.config.get("router_model"))
+        past = self.history.text()
+        self.history.add("User", text)
+        decision = brain.route(text, self.registry.describe(), self.config.get("router_model"), history=past)
         kind = decision.get("route")
         if kind == "chat":
             self.screen.set_activity("none")
@@ -215,7 +225,7 @@ class Controller:
         if kind == "action":
             self.run_action(decision)
             return
-        self.run_task(decision.get("task") or text, bool(decision.get("screenshot")))
+        self.run_task(decision.get("task") or text, bool(decision.get("screenshot")), past)
 
     def run_action(self, decision):
         name = decision.get("action")
@@ -229,7 +239,8 @@ class Controller:
             self.screen.set_activity("none")
             self.hud.send("mini", True)
             self.hud.job_start()
-            what = "%s %s" % (name.replace("_", " "), args.get("app", "")) if args else name.replace("_", " ")
+            subject = str(args.get("app") or args.get("command") or "")
+            what = ("%s %s" % (name.replace("_", " "), subject)).strip()
             ok = self.ask_yes_no("Shall I %s? Say yes or no." % what.strip(), what.strip().capitalize() + "?")
             if not ok:
                 self.screen.set_expression("neutral")
@@ -255,7 +266,7 @@ class Controller:
             self.screen.set_activity("none")
             self.screen.set_expression(res.get("expr", "neutral"))
         if res.get("say"):
-            self.say(res["say"])
+            self.say(res["say"], remember=name != "clear_history")
         elif res.get("text"):
             self.hud.said(res["text"])
             time.sleep(1.2)
@@ -263,7 +274,7 @@ class Controller:
         if not res.get("keep_screen"):
             self.settle()
 
-    def run_task(self, task, want_shot):
+    def run_task(self, task, want_shot, history=""):
         self.hud.send("mini", True)
         self.hud.job_start()
         self.screen.set_activity("think")
@@ -286,7 +297,7 @@ class Controller:
         task_runner = brain.ClaudeTask(self.config, on_tool=on_tool)
         self.task = task_runner
         before = self.registry.sig
-        result = task_runner.run(task, image=shot)
+        result = task_runner.run(task, image=shot, history=history)
         approved = []
         rounds = 0
         while result.denials and rounds < 4 and not result.error:

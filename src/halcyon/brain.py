@@ -104,9 +104,23 @@ FAST_PATTERNS = [
 ]
 
 
+CLEAR_HISTORY_RE = re.compile(
+    r"(?:please\s+)?(?:(?:clear|reset|wipe|delete|forget)\s+(?:(?:the|our|your|my)\s+)?"
+    r"(?:(?:conversation|chat|memory)\s+)?(?:history|conversation|chat|memory)"
+    r"|start over|start fresh|new conversation|start a new conversation|forget everything)",
+    re.I)
+COMMAND_RE = re.compile(r"^(?:run|execute)\s+(?:the\s+)?(?:(?:shell|terminal|cmd|powershell)\s+)?command\s+(?P<command>.+)$",
+                        re.I)
+
+
 def fast_route(text):
     t = re.sub(r"[?!.,]+$", "", text.strip())
     low = t.lower()
+    if CLEAR_HISTORY_RE.fullmatch(low):
+        return {"route": "action", "action": "clear_history", "args": {}}
+    m = COMMAND_RE.match(t)
+    if m and m.group("command").strip():
+        return {"route": "action", "action": "run_command", "args": {"command": m.group("command").strip()}}
     if re.fullmatch(r"(?:system status|status of (?:the )?system|task manager|how is (?:the |my )?(?:pc|computer|system)"
                     r"(?: doing)?|status)", low):
         return {"route": "action", "action": "system_status", "args": {}}
@@ -148,16 +162,27 @@ Never choose any route that spends money or buys anything.
 
 Actions:
 {actions}
-
+{history}
 The user said: {text}"""
 
+HISTORY_BLOCK = """
+Recent conversation, oldest first. Use it to resolve follow-ups like "do that again", "and tomorrow?" or "yes":
+{history}
+"""
 
-def route(text, actions_desc, model):
+
+def history_block(history):
+    history = (history or "").strip()
+    return HISTORY_BLOCK.format(history=history) if history else ""
+
+
+def route(text, actions_desc, model, history=""):
     fast = fast_route(text)
     if fast:
         return fast
     try:
-        out = ask_model(model, ROUTER_PROMPT.format(actions=actions_desc, text=json.dumps(text)), timeout=25)
+        prompt = ROUTER_PROMPT.format(actions=actions_desc, history=history_block(history), text=json.dumps(text))
+        out = ask_model(model, prompt, timeout=25)
     except BrainError:
         return {"route": "claude", "task": text, "screenshot": False}
     data = parse_json(out)
@@ -264,7 +289,7 @@ class ClaudeTask:
             except Exception:
                 pass
 
-    def run(self, prompt, allow_extra=(), resume=None, image=None):
+    def run(self, prompt, allow_extra=(), resume=None, image=None, history=""):
         exe = find_claude()
         res = TaskResult()
         if not exe:
@@ -278,7 +303,7 @@ class ClaudeTask:
                "--allowedTools", ",".join(allowed), "--add-dir", folder]
         if resume:
             cmd += ["--resume", resume]
-        text = prompt if resume else "%s\n\n---\n\n%s" % (system, prompt)
+        text = prompt if resume else "%s%s\n\n---\n\n%s" % (system, history_block(history), prompt)
         if image:
             text += "\n\nThe user's screen right now is in the image file %s. Read it first." % image
             cmd += ["--add-dir", os.path.dirname(image)]

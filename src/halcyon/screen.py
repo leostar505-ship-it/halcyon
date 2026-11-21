@@ -98,6 +98,7 @@ class Eyes:
         self.frantic = 0.0
         self.next_dart = 0.0
         self.drowse_start = 0.0
+        self.held = False
         self.timers = []
         self.hide_at = 0.0
         self.last_t = time.monotonic()
@@ -114,6 +115,8 @@ class Eyes:
         if name not in EXPR:
             return
         with self.lock:
+            if self.held:
+                return
             self.drowse_start = 0.0
             self.expr = name
             self.touch()
@@ -127,6 +130,8 @@ class Eyes:
 
     def set_activity(self, a):
         with self.lock:
+            if self.held:
+                return
             self.drowse_start = 0.0
             self.activity = a
             self.touch()
@@ -150,6 +155,7 @@ class Eyes:
 
     def wake(self):
         with self.lock:
+            self.held = False
             self.timers.clear()
             self.close_card()
             self.activity = "none"
@@ -160,6 +166,7 @@ class Eyes:
 
     def sleep_now(self):
         with self.lock:
+            self.held = True
             self.timers.clear()
             self.close_card()
             self.expr = "neutral"
@@ -171,6 +178,7 @@ class Eyes:
 
     def drowse(self):
         with self.lock:
+            self.held = False
             self.timers.clear()
             self.close_card()
             self.activity = "none"
@@ -181,6 +189,7 @@ class Eyes:
     def open_card(self, lines, level, expr, keep=0):
         with self.lock:
             was_asleep = self.activity == "sleep"
+            self.held = False
             self.timers.clear()
             self.activity = "none"
             self.drowse_start = 0.0

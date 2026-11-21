@@ -296,6 +296,43 @@ def set_screen(ctx, args):
     return {"say": "Small screen is feeling %s, sir." % state, "keep_screen": True}
 
 
+@action("clear_history", "Forget the recent conversation history so the next request starts fresh. No args.")
+def clear_history(ctx, args):
+    ctx.clear_history()
+    return {"say": "Conversation cleared, sir.", "expr": "neutral"}
+
+
+NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+DANGEROUS_COMMAND = re.compile(
+    r"\bformat\s+[a-z]:|\bdiskpart\b|\bmkfs\b|\brm\s+-\w*\s*/(?:\s|$)|\b(?:rd|rmdir|del)\b[^\n]*\s[a-z]:\\?\*?(?:\s|$)",
+    re.I)
+
+
+@action("run_command", "Run one shell command on this PC after the user approves it, then say what it printed. "
+                       "args: command", confirm=True)
+def run_command(ctx, args):
+    cmd = str(args.get("command", "")).strip()
+    if not cmd:
+        return {"say": "I didn't catch a command, sir.", "expr": "sad"}
+    if DANGEROUS_COMMAND.search(cmd) or safety.is_spend(cmd):
+        return {"say": "I won't run that one, sir.", "expr": "suspicious", "level": "warn"}
+    try:
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             timeout=30, cwd=os.path.expanduser("~"), creationflags=NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        return {"say": "That command took too long, sir, so I stopped it.", "expr": "sad", "level": "warn"}
+    except OSError as exc:
+        return {"say": "I couldn't run that, sir.", "expr": "sad", "detail": str(exc)}
+    lines = [l.strip() for l in ((res.stdout or "") + "\n" + (res.stderr or "")).splitlines() if l.strip()]
+    first = lines[0][:140] if lines else ""
+    if res.returncode != 0:
+        return {"say": ("That failed with code %d, sir. %s" % (res.returncode, first)).strip(), "expr": "sad",
+                "level": "warn"}
+    if not first:
+        return {"say": "Done, sir.", "expr": "happy"}
+    return {"say": first + (" There is more output, sir." if len(lines) > 1 else ""), "expr": "happy"}
+
+
 @action("volume", "Change the PC volume: up, down or mute. args: direction")
 def volume(ctx, args):
     d = str(args.get("direction", "up")).lower()

@@ -164,3 +164,47 @@ def test_webhook_line(env):
 def test_ctx_exposes_ask(env):
     c, hud, screen, voice, clip = env
     assert callable(c.ctx.ask_yes_no)
+
+
+def test_history_flows_and_clears(env):
+    c, hud, screen, voice, clip = env
+    c.run_command("tell me something nice")
+    assert c.history.text() == "User: tell me something nice\nHalcyon: It is a lovely day, sir."
+    c.run_command("clear history")
+    assert c.history.recent() == []
+    assert voice.spoken[-1] == "Conversation cleared, sir."
+
+
+def test_run_command_asks_first(env):
+    import sys
+    c, hud, screen, voice, clip = env
+
+    def answer(value):
+        for _ in range(100):
+            if c.asking:
+                c.answer(value)
+                return
+            time.sleep(.05)
+    threading.Thread(target=answer, args=(True,), daemon=True).start()
+    c.run_command('run command "%s" -c "print(7)"' % sys.executable)
+    assert voice.spoken[0].startswith("Shall I run command")
+    assert voice.spoken[-1] == "7"
+    voice.spoken.clear()
+    threading.Thread(target=answer, args=(False,), daemon=True).start()
+    c.run_command('run command "%s" -c "print(8)"' % sys.executable)
+    assert voice.spoken[-1] == "Cancelled, sir."
+    assert "8" not in voice.spoken
+
+
+def test_asleep_screen_stays_asleep_while_speaking(env):
+    c, hud, screen, voice, clip = env
+    from halcyon.screen import Eyes
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    eyes = Eyes()
+    screen.eyes = eyes
+    screen.set_activity = eyes.set_activity
+    screen.set_expression = eyes.set_expression
+    eyes.sleep_now()
+    c.say("Hello there, sir.")
+    assert eyes.activity == "sleep"
