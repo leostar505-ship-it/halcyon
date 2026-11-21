@@ -85,6 +85,30 @@ class SettingsDialog(QDialog):
         k.addRow("Small screen port", self.serial)
         tabs.addTab(link, "Devices")
 
+        lights = QWidget()
+        lf = QFormLayout(lights)
+        self.rgb = QCheckBox("Change my lights when Halcyon is called or an event arrives")
+        self.rgb.setChecked(bool(config.get("rgb_enabled")))
+        self.rgb_brightness = QSpinBox()
+        self.rgb_brightness.setRange(1, 100)
+        self.rgb_brightness.setSuffix(" %")
+        self.rgb_brightness.setValue(int(config.get("rgb_brightness")))
+        self.govee = QLineEdit(config.get("govee_ips"))
+        self.govee.setPlaceholderText("blank = find Govee lights automatically")
+        self.orgb = QCheckBox("Control PC lights through OpenRGB")
+        self.orgb.setChecked(bool(config.get("openrgb_enabled")))
+        self.orgb_host = QLineEdit(config.get("openrgb_host"))
+        self.orgb_port = QSpinBox()
+        self.orgb_port.setRange(1, 65535)
+        self.orgb_port.setValue(int(config.get("openrgb_port")))
+        lf.addRow(self.rgb)
+        lf.addRow("Brightness", self.rgb_brightness)
+        lf.addRow("Govee light addresses", self.govee)
+        lf.addRow(self.orgb)
+        lf.addRow("OpenRGB address", self.orgb_host)
+        lf.addRow("OpenRGB port", self.orgb_port)
+        tabs.addTab(lights, "Lights")
+
         note = QLabel("Voice, Claude and device changes apply after restarting Halcyon.")
         note.setWordWrap(True)
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -124,6 +148,12 @@ class SettingsDialog(QDialog):
             "webhook_cooldown": self.cooldown.value(),
             "screen_enabled": self.screen.isChecked(),
             "serial_port": self.serial.text().strip() or "auto",
+            "rgb_enabled": self.rgb.isChecked(),
+            "rgb_brightness": self.rgb_brightness.value(),
+            "govee_ips": self.govee.text().strip(),
+            "openrgb_enabled": self.orgb.isChecked(),
+            "openrgb_host": self.orgb_host.text().strip() or "127.0.0.1",
+            "openrgb_port": self.orgb_port.value(),
         }
         c.data.update(values)
         c.save()

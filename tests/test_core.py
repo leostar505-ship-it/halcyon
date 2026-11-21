@@ -108,3 +108,50 @@ def test_settings_dialog_saves(tmp_path, monkeypatch):
     assert cfg.get("wake_words") == ["halcyon", "hal see on"]
     assert cfg.get("webhook_port") == 9001
     assert cfgmod.Config().get("webhook_port") == 9001
+
+
+class FakeBackend:
+    def __init__(self):
+        self.log = []
+
+    def snapshot(self):
+        self.log.append("snap")
+
+    def colour(self, rgb):
+        self.log.append(rgb)
+
+    def restore(self):
+        self.log.append("restore")
+
+
+def test_lights_flow():
+    from halcyon import rgb
+
+    class Cfg:
+        def get(self, k):
+            return {"rgb_enabled": True, "rgb_brightness": 50}[k]
+
+    fb = FakeBackend()
+    lights = rgb.Lights(Cfg(), govee=fb)
+    lights.show("alert")
+    lights.show("info")
+    lights.restore()
+    lights.restore()
+    lights.shutdown()
+    assert fb.log == ["snap", (128, 0, 0), (0, 128, 128), "restore"]
+    assert rgb.parse_ips("192.168.8.20, 192.168.8.21;192.168.8.22") == ["192.168.8.20", "192.168.8.21", "192.168.8.22"]
+    assert rgb.scale((255, 190, 0), 0) == (0, 0, 0)
+
+
+def test_govee_payload(monkeypatch):
+    from halcyon import rgb
+    sent = []
+    g = rgb.Govee(["10.0.0.5"])
+    monkeypatch.setattr(g, "send", lambda ip, cmd, data: sent.append((ip, cmd, data)))
+    g.colour((0, 255, 255))
+    assert sent[0] == ("10.0.0.5", "turn", {"value": 1})
+    assert sent[1][1] == "colorwc" and sent[1][2]["color"] == {"r": 0, "g": 255, "b": 255}
+    g.saved["10.0.0.5"] = {"onOff": 1, "brightness": 80, "color": {"r": 1, "g": 2, "b": 3}, "colorTemInKelvin": 0}
+    sent.clear()
+    g.restore()
+    assert [c for _, c, _ in sent] == ["turn", "colorwc", "brightness"] and not g.saved

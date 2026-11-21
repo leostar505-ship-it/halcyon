@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 
+from .rgb import NullLights
 from . import brain, safety, webhook
 from .actions import Registry
 
@@ -26,11 +27,13 @@ class Ctx:
 
 
 class Controller:
-    def __init__(self, config, hud, screen, voice, clipboard_cb=None, open_folder_cb=None):
+    def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None):
         self.config = config
         self.hud = hud
         self.screen = screen
         self.voice = voice
+        self.lights = lights or NullLights()
+        self.light_gen = 0
         self.listener = None
         self.registry = Registry(config)
         self.clipboard_cb = clipboard_cb or (lambda text: None)
@@ -69,6 +72,7 @@ class Controller:
         threading.Thread(target=self.run_command, args=(text,), daemon=True).start()
 
     def on_wake(self):
+        self.light_on("info")
         self.hud.begin(False)
         self.hud.state("listening")
         self.screen.set_activity("none")
@@ -123,17 +127,35 @@ class Controller:
         self.hud.job_set(jid, bullet + (" - approved" if result else " - declined"), "done" if result else "fail")
         return bool(result)
 
+    def light_on(self, level):
+        self.light_gen += 1
+        self.lights.show(level)
+
+    def light_off(self, delay=0.0):
+        gen = self.light_gen
+        if delay <= 0:
+            self.lights.restore()
+            return
+
+        def later():
+            if gen == self.light_gen:
+                self.lights.restore()
+        threading.Timer(delay, later).start()
+
     def finish_hud(self, seconds=5.0):
+        self.light_off(min(seconds, 3.0))
         self.hud.state("idle")
         self.hud.close_in(seconds)
 
     def run_command(self, text):
         text = (text or "").strip()
         if not text:
+            self.light_off()
             self.hud.close()
             self.screen.set_expression("neutral")
             return
         if safety.CANCEL_RE.match(text):
+            self.light_off()
             self.hud.close()
             self.screen.set_expression("neutral")
             return
@@ -321,6 +343,7 @@ class Controller:
             return
         level = ev.get("level") or webhook.LEVEL.get(ev["kind"], "info")
         expr = ev.get("expr") or webhook.EXPR.get(ev["kind"], "curious")
+        self.light_on(level)
         self.screen.card(webhook.card_lines(ev), level, expr)
         with self.lock:
             self.hud.begin(True)

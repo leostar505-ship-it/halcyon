@@ -32,3 +32,11 @@ Drop a Python file in `%APPDATA%\Halcyon\actions` with `NAME`, `DESCRIPTION` and
 ## Settings
 
 Tray, Settings: hotkey, wake words, speech models, GPU, Claude models, server, webhook, small screen, start with Windows. Everything is stored in `%APPDATA%\Halcyon\config.json`.
+
+## Lights (rgb branch)
+
+Halcyon can change your lights: cyan when it is called or for normal events, yellow for suspicious ones, red for severe ones, then it puts them back.
+
+- Govee: in the Govee Home app open each light, Device settings, and turn on LAN Control. Halcyon finds them by itself, or enter their addresses in Settings, Lights.
+- PC parts: open OpenRGB, go to the SDK Server tab and press Start Server.
+- Tray, Lights test: try cyan, yellow, red and restore, and "Scan lights and devices" writes `lights_scan.txt` listing what Halcyon can see, including whether the GPU shows up.

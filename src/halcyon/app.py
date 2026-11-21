@@ -15,6 +15,7 @@ from .controller import Controller
 from .hud import Hud
 from .screen import Screen
 from .settings import SettingsDialog
+from .rgb import Lights, scan_report
 from .voice_in import Listener
 from .voice_out import Voice
 from .webhook import WebhookServer
@@ -79,7 +80,8 @@ def main(argv=None):
     voice = Voice(config)
     clipboard = QGuiApplication.clipboard()
     bridge.clip.connect(lambda text: clipboard.setText(text))
-    controller = Controller(config, hud.bridge, screen, voice, clipboard_cb=bridge.clip.emit)
+    lights = Lights(config)
+    controller = Controller(config, hud.bridge, screen, voice, lights=lights, clipboard_cb=bridge.clip.emit)
     controller.status_cb = bridge.status.emit
 
     tray = QSystemTrayIcon(icon, app)
@@ -137,8 +139,24 @@ def main(argv=None):
         dialogs[:] = [dlg]
         dlg.show()
 
+    def lights_scan():
+        def work():
+            text = scan_report(config)
+            path = config_dir() / "lights_scan.txt"
+            path.write_text(text, encoding="utf-8")
+            open_path(str(path))
+        threading.Thread(target=work, daemon=True).start()
+
+    lights_menu = menu.addMenu("Lights test")
+    for label, level in (("Cyan", "info"), ("Yellow", "warn"), ("Red", "alert")):
+        a = lights_menu.addAction(label)
+        a.triggered.connect(lambda checked=False, lv=level: lights.show(lv))
+    lights_menu.addAction("Restore").triggered.connect(lambda checked=False: lights.restore())
+    lights_menu.addAction("Scan lights and devices").triggered.connect(lambda checked=False: lights_scan())
+
     act("Settings...", settings)
     act("Open settings file", lambda: open_path(str(config.path)))
+    app.aboutToQuit.connect(lights.shutdown)
     act("Quit", app.quit)
     tray.setContextMenu(menu)
     tray.show()

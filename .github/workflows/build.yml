@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, rgb]
     tags: ['v*']
   workflow_dispatch:
 
@@ -103,8 +103,10 @@ jobs:
       - uses: ncipollo/release-action@v1
         with:
           artifacts: out/Halcyon-Setup.exe
-          tag: v${{ needs.build.outputs.version }}
-          name: Halcyon ${{ needs.build.outputs.version }}
+          tag: ${{ github.ref_name == 'rgb' && 'rgb-test' || format('v{0}', needs.build.outputs.version) }}
+          name: ${{ github.ref_name == 'rgb' && 'Halcyon RGB test' || format('Halcyon {0}', needs.build.outputs.version) }}
+          prerelease: ${{ github.ref_name == 'rgb' }}
+          makeLatest: ${{ github.ref_name != 'rgb' }}
           commit: ${{ github.sha }}
           allowUpdates: true
           replacesArtifacts: true
