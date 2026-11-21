@@ -60,6 +60,7 @@ class Bus(QObject):
     lights = Signal(list)
     cbdone = Signal(bool)
     gpudone = Signal(bool)
+    cbstate = Signal(bool, str, str)
 
 
 class Core(QWidget):
@@ -222,6 +223,7 @@ class Panel(QWidget):
         self.bus.lights.connect(self.got_lights)
         self.bus.cbdone.connect(self.cb_finished)
         self.bus.gpudone.connect(self.gpu_finished)
+        self.bus.cbstate.connect(self.cb_state)
         self.mic_stream = None
         self.mic_level = 0.0
         root = QHBoxLayout(self)
@@ -836,19 +838,44 @@ class Panel(QWidget):
         self.v_tts.setText("Voice: checking...")
 
         def job():
+            from . import chatterbox_setup as CB
             url = self.config.get("chatterbox_url")
+            have = CB.installed()
             try:
-                with urllib.request.urlopen(url + "/health", timeout=1.5):
-                    self.bus.voice.emit("tts", "Voice: Chatterbox is running at %s" % url)
-                    return
+                with urllib.request.urlopen(url + "/health", timeout=1.5) as r:
+                    info = r.read().decode("utf-8", "replace").strip()
+                self.bus.cbstate.emit(True, "up", info)
+                return
             except Exception:
                 pass
-            from . import chatterbox_setup as CB
+            starting = self.chatterbox is not None and self.chatterbox.running()
+            self.bus.cbstate.emit(have, "starting" if starting else "down", "")
+        self.run(job)
+
+    def cb_state(self, have, state, info):
+        if state == "up":
+            if "device=gpu" in info:
+                name = info.split("name=", 1)[1] if "name=" in info else "GPU"
+                self.bus.voice.emit("tts", "Voice: Chatterbox is running on the GPU (%s)" % name)
+                self.cb_gpu.setText("GPU on")
+                self.cb_gpu.setEnabled(False)
+            else:
+                self.bus.voice.emit("tts", "Voice: Chatterbox is running on the CPU, which is slow")
+                self.cb_gpu.setText("Use my AMD GPU")
+                self.cb_gpu.setEnabled(True)
+            self.cb_install.setText("Reinstall Chatterbox")
+            return
+        self.cb_gpu.setEnabled(True)
+        self.cb_gpu.setText("Use my AMD GPU")
+        self.cb_install.setText("Reinstall Chatterbox" if have else "Install Chatterbox")
+        if state == "starting":
+            self.bus.voice.emit("tts", "Voice: Chatterbox is starting, give it a minute")
+            QTimer.singleShot(8000, self.refresh_voice)
+        else:
             note = "Voice: Chatterbox is not running, Windows voice will be used instead"
-            if not CB.installed():
+            if not have:
                 note += " (press Install Chatterbox below)"
             self.bus.voice.emit("tts", note)
-        self.run(job)
 
     def cb_log(self, text):
         self.bus.log.emit(text)
@@ -877,7 +904,7 @@ class Panel(QWidget):
     def cb_finished(self, ok):
         self.cb_install.setEnabled(True)
         self.cb_install.setText("Reinstall Chatterbox" if ok else "Install Chatterbox")
-        self.refresh_voice()
+        QTimer.singleShot(5000, self.refresh_voice)
 
     def gpu_chatterbox(self):
         from . import chatterbox_setup as CB
@@ -901,6 +928,7 @@ class Panel(QWidget):
     def gpu_finished(self, ok):
         self.cb_gpu.setEnabled(True)
         self.cb_gpu.setText("GPU on" if ok else "Use my AMD GPU")
+        QTimer.singleShot(5000, self.refresh_voice)
 
     def start_chatterbox(self):
         if self.chatterbox is not None:

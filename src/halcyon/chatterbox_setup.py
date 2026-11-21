@@ -136,10 +136,25 @@ def has_amd_gpu():
 AMD_INDEX = "https://repo.amd.com/rocm/whl-multi-arch/"
 
 
+def gpu_ready():
+    py = venv_python()
+    if not py.exists():
+        return False
+    try:
+        r = subprocess.run([str(py), "-c", "import torch;print(torch.cuda.is_available())"],
+                           capture_output=True, text=True, creationflags=FLAGS, timeout=120)
+        return (r.stdout or "").strip().splitlines()[-1:] == ["True"]
+    except Exception:
+        return False
+
+
 def install_gpu(log):
     if not installed():
         log("Install Chatterbox first.")
         return False
+    if gpu_ready():
+        log("The GPU version of PyTorch is already installed and working, so nothing needs installing.")
+        return True
     vp = str(venv_python())
     log("Installing the AMD GPU version of PyTorch (about 3 GB, can take 10 minutes or more)...")
     code = stream([vp, "-m", "pip", "install", "--index-url", AMD_INDEX, "--extra-index-url", "https://pypi.org/simple",
