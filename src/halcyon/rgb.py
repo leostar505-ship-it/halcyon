@@ -59,7 +59,12 @@ class Govee:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("", 4002))
-        for ip in self.local_ips() or ["0.0.0.0"]:
+        try:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                         struct.pack("4sl", socket.inet_aton(GOVEE_GROUP), socket.INADDR_ANY))
+        except OSError:
+            pass
+        for ip in self.local_ips():
             try:
                 s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                              struct.pack("4s4s", socket.inet_aton(GOVEE_GROUP), socket.inet_aton(ip)))
@@ -92,13 +97,19 @@ class Govee:
         s = self._listener()
         msg = json.dumps({"msg": {"cmd": "scan", "data": {"account_topic": "reserved"}}}).encode()
         try:
-            for ip in self.local_ips() or ["0.0.0.0"]:
-                try:
-                    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
-                    s.sendto(msg, (GOVEE_GROUP, 4001))
-                except OSError:
-                    pass
-            self.collect(s, found, wait)
+            try:
+                s.sendto(msg, (GOVEE_GROUP, 4001))
+            except OSError:
+                pass
+            self.collect(s, found, 1.2)
+            if not found:
+                for ip in self.local_ips():
+                    try:
+                        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                        s.sendto(msg, (GOVEE_GROUP, 4001))
+                    except OSError:
+                        pass
+                self.collect(s, found, wait)
             if not found:
                 for ip in self.local_ips():
                     base = ip.rsplit(".", 1)[0]
@@ -116,7 +127,7 @@ class Govee:
         if not self.ips and time.monotonic() >= self.next_scan:
             self.ips = [d["ip"] for d in self.scan()]
             if not self.ips:
-                self.next_scan = time.monotonic() + 60
+                self.next_scan = time.monotonic() + 15
             elif self.on_found:
                 try:
                     self.on_found(self.ips)
