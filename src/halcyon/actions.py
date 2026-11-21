@@ -1,5 +1,6 @@
 import difflib
 import glob
+import json
 import os
 import random
 import re
@@ -8,6 +9,7 @@ import subprocess
 import sys
 import time
 import traceback
+from urllib.parse import quote
 
 import psutil
 
@@ -28,16 +30,58 @@ def _norm(s):
     return re.sub(r"[^a-z0-9]+", " ", str(s).lower()).strip()
 
 
+SHORTCUT_EXTS = (".lnk", ".url")
+
+
 def start_menu_apps():
-    roots = []
-    if sys.platform == "win32":
-        roots = [os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs"),
-                 os.path.join(os.environ.get("PROGRAMDATA", ""), "Microsoft", "Windows", "Start Menu", "Programs")]
+    if sys.platform != "win32":
+        return {}
+    menus = []
+    for env in ("APPDATA", "PROGRAMDATA"):
+        base = os.environ.get(env)
+        if base:
+            menus.append(os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs"))
+    desktops = []
+    for env, sub in (("USERPROFILE", "Desktop"), ("PUBLIC", "Desktop"), ("OneDrive", "Desktop")):
+        base = os.environ.get(env)
+        if base:
+            desktops.append(os.path.join(base, sub))
     found = {}
-    for root in roots:
-        for path in glob.glob(os.path.join(root, "**", "*.lnk"), recursive=True):
-            found[_norm(os.path.splitext(os.path.basename(path))[0])] = path
+    for root in desktops:
+        for ext in SHORTCUT_EXTS:
+            for path in glob.glob(os.path.join(root, "*" + ext)):
+                found[_norm(os.path.splitext(os.path.basename(path))[0])] = path
+    for root in menus:
+        for ext in SHORTCUT_EXTS:
+            for path in glob.glob(os.path.join(root, "**", "*" + ext), recursive=True):
+                found[_norm(os.path.splitext(os.path.basename(path))[0])] = path
     return found
+
+
+def epic_games():
+    base = os.environ.get("PROGRAMDATA")
+    if not base:
+        return []
+    games = []
+    for path in glob.glob(os.path.join(base, "Epic", "EpicGamesLauncher", "Data", "Manifests", "*.item")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        name = data.get("DisplayName")
+        app = data.get("AppName")
+        if not name or not app or data.get("bIsIncompleteInstall"):
+            continue
+        ns = data.get("CatalogNamespace") or ""
+        cid = data.get("CatalogItemId") or ""
+        ref = "%s:%s:%s" % (ns, cid, app) if ns and cid else app
+        games.append({"name": name,
+                      "uri": "com.epicgames.launcher://apps/%s?action=launch&silent=true" % quote(ref, safe=""),
+                      "dir": data.get("InstallLocation") or ""})
+    return games
 
 
 def steam_roots():
@@ -73,9 +117,11 @@ def steam_games():
             name = re.search(r'"name"\s+"([^"]+)"', text)
             appid = re.search(r'"appid"\s+"(\d+)"', text)
             last = re.search(r'"LastPlayed"\s+"(\d+)"', text)
+            folder = re.search(r'"installdir"\s+"([^"]+)"', text)
             if name and appid and name.group(1) not in ("Steamworks Common Redistributables",):
                 games[appid.group(1)] = {"name": name.group(1), "id": appid.group(1),
-                                         "last": int(last.group(1)) if last else 0}
+                                         "last": int(last.group(1)) if last else 0,
+                                         "dir": os.path.join(lib, "common", folder.group(1)) if folder else ""}
     return list(games.values())
 
 
@@ -118,7 +164,43 @@ def resolve_app(ctx, name):
     key = best_match(name, list(by_name.keys()))
     if key:
         return ("steam", by_name[key]["id"], key)
+    epic = {g["name"]: g for g in epic_games()}
+    key = best_match(name, list(epic.keys()))
+    if key:
+        return ("epic", epic[key]["uri"], key)
     return None
+
+
+def launch_target(kind, target):
+    launch_path("steam://rungameid/%s" % target if kind == "steam" else target)
+
+
+def game_dir(kind, target):
+    if kind == "steam":
+        for g in steam_games():
+            if g["id"] == target:
+                return g.get("dir", "")
+    if kind == "epic":
+        for g in epic_games():
+            if g["uri"] == target:
+                return g.get("dir", "")
+    return ""
+
+
+def running_procs(kind, target, label):
+    folder = game_dir(kind, target)
+    if folder:
+        root = os.path.normcase(os.path.abspath(folder)) + os.sep
+        found = []
+        for p in psutil.process_iter(["exe"]):
+            try:
+                exe = p.info.get("exe") or ""
+            except Exception:
+                continue
+            if exe and os.path.normcase(os.path.abspath(exe)).startswith(root):
+                found.append(p)
+        return found
+    return find_procs(None, label)
 
 
 @action("open_app", "Open an app, program, folder shortcut or game by name. args: app")
@@ -128,14 +210,21 @@ def open_app(ctx, args):
     if not found:
         return {"say": "I couldn't find %s, sir." % name, "expr": "sad", "level": "info"}
     kind, target, label = found
+    shown = label.title() if kind == "path" else label
+    ask = getattr(ctx, "ask_yes_no", None)
+    if ask:
+        try:
+            already = bool(running_procs(kind, target, label))
+        except Exception:
+            already = False
+        if already and not ask("%s is already open, sir. Shall I open it again? Say yes or no." % shown,
+                               "%s is already open. Open again?" % shown):
+            return {"say": "Leaving %s as it is, sir." % shown, "expr": "neutral"}
     try:
-        if kind == "steam":
-            launch_path("steam://rungameid/%s" % target)
-        else:
-            launch_path(target)
+        launch_target(kind, target)
     except Exception as exc:
-        return {"say": "I couldn't open %s, sir." % label, "expr": "sad", "detail": str(exc)}
-    return {"say": "Opening %s, sir." % label.title() if kind == "path" else "Launching %s, sir." % label,
+        return {"say": "I couldn't open %s, sir." % shown, "expr": "sad", "detail": str(exc)}
+    return {"say": "Opening %s, sir." % shown if kind == "path" else "Launching %s, sir." % shown,
             "expr": "happy"}
 
 
@@ -256,7 +345,7 @@ def random_game(ctx, args):
         return {"say": "I couldn't find any games to pick from, sir.", "expr": "sad"}
     kind, target, name = random.choice(pool)
     try:
-        launch_path("steam://rungameid/%s" % target if kind == "steam" else target)
+        launch_target(kind, target)
     except Exception:
         return {"say": "I picked %s but couldn't launch it, sir." % name, "expr": "sad"}
     return {"say": "How about %s, sir?" % name, "expr": "happy"}

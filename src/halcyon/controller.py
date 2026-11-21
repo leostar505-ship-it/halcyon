@@ -26,6 +26,9 @@ class Ctx:
     def screenshot(self):
         return self._c.screenshot()
 
+    def ask_yes_no(self, question, bullet):
+        return self._c.ask_yes_no(question, bullet)
+
 
 class Controller:
     def __init__(self, config, hud, screen, voice, lights=None, clipboard_cb=None, open_folder_cb=None, cues=None):

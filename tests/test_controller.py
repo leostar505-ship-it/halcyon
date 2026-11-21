@@ -160,3 +160,7 @@ def test_webhook_line(env):
     assert voice.spoken == ["Sir, Alex has just logged on."]
     c.on_webhook(dict(ev))
     assert len(voice.spoken) == 1
+
+def test_ctx_exposes_ask(env):
+    c, hud, screen, voice, clip = env
+    assert callable(c.ctx.ask_yes_no)

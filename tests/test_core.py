@@ -203,3 +203,92 @@ def test_cues_render():
     from halcyon import cues
     for name in cues.RECIPES:
         assert cues.render(name)[:4] == b"RIFF"
+
+
+class FakeCfg:
+    def get(self, key, default=None):
+        return {} if key == "apps" else default
+
+
+class AskCtx:
+    def __init__(self, answer):
+        self.config = FakeCfg()
+        self.answer = answer
+        self.asked = []
+
+    def ask_yes_no(self, question, bullet):
+        self.asked.append(question)
+        return self.answer
+
+
+class FakeProc:
+    def __init__(self, exe):
+        self.info = {"exe": exe}
+
+
+def epic_env(tmp_path, monkeypatch):
+    import json
+    from halcyon import actions
+    manifests = tmp_path / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests"
+    manifests.mkdir(parents=True)
+    game = tmp_path / "Games" / "Fortnite"
+    (manifests / "a.item").write_text(json.dumps({
+        "DisplayName": "Fortnite", "AppName": "Fortnite", "CatalogNamespace": "fn",
+        "CatalogItemId": "4fe75bbc5a674f4f9b356b5c90567da5", "InstallLocation": str(game)}))
+    (manifests / "b.item").write_text(json.dumps({"DisplayName": "Half Installed", "AppName": "X",
+                                                  "bIsIncompleteInstall": True}))
+    (manifests / "c.item").write_text("not json")
+    monkeypatch.setenv("PROGRAMDATA", str(tmp_path))
+    monkeypatch.setattr(actions, "start_menu_apps", lambda: {})
+    monkeypatch.setattr(actions, "steam_games", lambda: [])
+    return game
+
+
+def test_epic_fortnite_found(tmp_path, monkeypatch):
+    from halcyon import actions
+    epic_env(tmp_path, monkeypatch)
+    found = actions.resolve_app(AskCtx(True), "fortnite")
+    assert found[0] == "epic" and found[2] == "Fortnite"
+    assert found[1] == ("com.epicgames.launcher://apps/fn%3A4fe75bbc5a674f4f9b356b5c90567da5%3AFortnite"
+                        "?action=launch&silent=true")
+    assert actions.resolve_app(AskCtx(True), "half installed") is None
+
+
+def test_open_app_not_running_launches_without_asking(tmp_path, monkeypatch):
+    from halcyon import actions
+    epic_env(tmp_path, monkeypatch)
+    launched = []
+    monkeypatch.setattr(actions, "launch_path", launched.append)
+    monkeypatch.setattr(actions.psutil, "process_iter", lambda attrs=None: [FakeProc(str(tmp_path / "other.exe"))])
+    ctx = AskCtx(True)
+    res = actions.open_app(ctx, {"app": "fortnite"})
+    assert ctx.asked == [] and len(launched) == 1 and launched[0].startswith("com.epicgames.launcher://")
+    assert "Launching Fortnite" in res["say"]
+
+
+def test_open_app_already_open_asks(tmp_path, monkeypatch):
+    from halcyon import actions
+    game = epic_env(tmp_path, monkeypatch)
+    exe = str(game / "FortniteGame" / "Binaries" / "Win64" / "FortniteClient-Win64-Shipping.exe")
+    monkeypatch.setattr(actions.psutil, "process_iter", lambda attrs=None: [FakeProc(exe)])
+    launched = []
+    monkeypatch.setattr(actions, "launch_path", launched.append)
+    ctx = AskCtx(False)
+    res = actions.open_app(ctx, {"app": "fortnite"})
+    assert len(ctx.asked) == 1 and "already open" in ctx.asked[0]
+    assert launched == [] and "Leaving Fortnite" in res["say"]
+    ctx = AskCtx(True)
+    res = actions.open_app(ctx, {"app": "fortnite"})
+    assert len(ctx.asked) == 1 and len(launched) == 1 and "Launching Fortnite" in res["say"]
+
+
+def test_open_app_already_open_by_name(monkeypatch):
+    from halcyon import actions
+    monkeypatch.setattr(actions, "resolve_app", lambda ctx, name: ("path", "chrome.lnk", "chrome"))
+    monkeypatch.setattr(actions, "find_procs", lambda ctx, name: [object()])
+    launched = []
+    monkeypatch.setattr(actions, "launch_path", launched.append)
+    ctx = AskCtx(False)
+    res = actions.open_app(ctx, {"app": "chrome"})
+    assert "already open" in ctx.asked[0] and launched == [] and "Leaving Chrome" in res["say"]
+
