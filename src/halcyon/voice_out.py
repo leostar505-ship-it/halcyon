@@ -137,11 +137,23 @@ class Voice:
             return self.chatterbox_ok
         self.checked = now
         try:
-            with urllib.request.urlopen(self.config.get("chatterbox_url") + "/health", timeout=1.5):
+            with urllib.request.urlopen(self.config.get("chatterbox_url") + "/health", timeout=5):
                 self.chatterbox_ok = True
-        except Exception:
-            self.chatterbox_ok = False
+        except Exception as exc:
+            busy = self.chatterbox_ok is True and "timed out" in str(exc).lower()
+            if not busy:
+                self.chatterbox_ok = False
+                self.note("Chatterbox health check failed: %s" % exc)
         return self.chatterbox_ok
+
+    def note(self, text):
+        self.last_error = text
+        try:
+            from .config import config_dir
+            with open(config_dir() / "voice.log", "a", encoding="utf-8") as f:
+                f.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
+        except Exception:
+            pass
 
     def speak(self, text, on_amp=None):
         text = statement(text)
@@ -153,12 +165,16 @@ class Voice:
             self._simulate(text, on_amp)
             return
         if self._chatterbox_up():
-            try:
-                self._speak_chatterbox(text, on_amp)
-                return
-            except Exception as exc:
-                self.chatterbox_ok = False
-                self.last_error = "Chatterbox failed: %s" % exc
+            for attempt in (1, 2):
+                try:
+                    self._speak_chatterbox(text, on_amp)
+                    return
+                except Exception as exc:
+                    self.note("Chatterbox speak failed (try %d): %s: %s" % (attempt, type(exc).__name__, exc))
+                    if self.stop_flag.is_set():
+                        return
+                    time.sleep(0.4)
+            self.chatterbox_ok = False
         if sys.platform == "win32":
             try:
                 self._speak_sapi(text, on_amp)
