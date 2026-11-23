@@ -103,7 +103,11 @@ def main():
             print("Using GPU %d: %s" % (pick, torch.cuda.get_device_name(pick)), flush=True)
             INFO[0] = "ok device=gpu name=%s" % torch.cuda.get_device_name(pick)
     model = ChatterboxTTS.from_pretrained(device=device)
-    for warm in ("Ready.", "Good evening, sir. All systems are running and I am ready for your next request."):
+    for warm in ("Ready.",
+                 "Good evening, sir.",
+                 "Good evening, sir. All systems are running and I am ready for your next request.",
+                 "Understood, sir. I have opened the application you asked for, and everything looks to be running normally.",
+                 "Sir, the most recent change stops me falling back to the Windows voice while the speech engine is running, and it also logs the reason, so we can see what happened afterwards."):
         synth(warm)
     print("Chatterbox server ready on port %d" % args.port, flush=True)
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()

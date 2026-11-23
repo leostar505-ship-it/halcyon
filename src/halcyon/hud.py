@@ -18,7 +18,9 @@ MONO = "Consolas"
 
 
 SAY_MAX_W = 1400
-SAY_MAX_LINES = 3
+SAY_MAX_LINES = 6
+SAY_PAD = 30
+SAY_LINE_H = 42
 
 
 def wrap_lines(text, fm, max_w, max_lines):
@@ -103,6 +105,8 @@ class Hud(QWidget):
         self.said = ""
         self.shown = ""
         self.type_t = 0.0
+        self.box_w = 240.0
+        self.box_h = 0.0
         self.amp = 0.0
         self.panel = None
         self.panel_p = 0.0
@@ -140,6 +144,7 @@ class Hud(QWidget):
         self.transcript = ""
         self.said = ""
         self.shown = ""
+        self.box_h = 0.0
         self.panel = None
         self.do_level("info")
         if not self.isVisible():
@@ -158,6 +163,8 @@ class Hud(QWidget):
 
     def do_said(self, t):
         self.said = t
+        self.shown = ""
+        self.box_h = 0.0
         self.type_t = time.monotonic()
 
     def do_level(self, level):
@@ -222,11 +229,41 @@ class Hud(QWidget):
         if self.state == "speaking":
             n = int((now - self.type_t) * 24)
             self.shown = self.said[:max(0, min(len(self.said), n))]
+        self.grow_box(dt)
         if self.p <= 0 and self.target <= 0 and self.job_a < .01:
             self.timer.stop()
             self.hide()
             return
         self.update()
+
+    def say_layout(self):
+        font = self.font(DISPLAY, 32, QFont.Medium)
+        fm = QFontMetricsF(font)
+        lines = wrap_lines(self.said, fm, SAY_MAX_W, SAY_MAX_LINES)
+        left = len(self.shown)
+        drawn = []
+        for ln in lines:
+            if left <= 0:
+                break
+            drawn.append(ln[:left])
+            left -= len(ln) + 1
+        full_w = max([fm.horizontalAdvance(l) for l in lines] + [0]) + SAY_PAD * 2
+        full_w = max(min(full_w, SAY_MAX_W + SAY_PAD * 2), 240)
+        reveal_w = max([fm.horizontalAdvance(l) for l in drawn] + [0]) + SAY_PAD * 2
+        reveal_w = max(min(reveal_w, full_w), 240)
+        reveal_h = 64 + (max(len(drawn), 1) - 1) * SAY_LINE_H
+        return font, drawn, full_w, reveal_w, reveal_h
+
+    def grow_box(self, dt):
+        if not self.shown:
+            self.box_h += (0 - self.box_h) * min(1.0, dt * 14)
+            return
+        _, _, _, tw, th = self.say_layout()
+        if self.box_h < 2:
+            self.box_w = 240.0
+        k = min(1.0, dt * 16)
+        self.box_w += (tw - self.box_w) * k
+        self.box_h += (th - self.box_h) * k
 
     def rgba(self, a=1.0):
         pulse = 1 - self.sev * .3 * (.5 + .5 * math.sin(time.monotonic() * 6))
@@ -502,33 +539,34 @@ class Hud(QWidget):
                 hh = 4 + 36 * math.exp(-((i - pos) ** 2) / 14)
             p.drawRect(QRectF(bx0 + i * (bw + gap), by0 - hh / 2, bw, hh))
         p.setBrush(Qt.NoBrush)
-        if self.shown:
-            font = self.font(DISPLAY, 32, QFont.Medium)
+        box_top = 932.0
+        if self.shown and self.box_h > 2:
+            font, drawn, full_w, _, _ = self.say_layout()
             p.setFont(font)
-            fm = QFontMetricsF(font)
-            lines = wrap_lines(self.said, fm, SAY_MAX_W, SAY_MAX_LINES)
-            left = len(self.shown)
-            drawn = []
-            for ln in lines:
-                if left <= 0:
-                    break
-                drawn.append(ln[:left])
-                left -= len(ln) + 1
-            widest = max([fm.horizontalAdvance(l) for l in lines] + [0]) + 56
-            bw = max(min(widest, SAY_MAX_W + 56), 240)
-            bh = 64 + (len(lines) - 1) * 42
-            box = QRectF(960 - bw / 2, 932 - bh, bw, bh)
+            bw = max(self.box_w, 240.0)
+            bh = self.box_h
+            left = 960 - full_w / 2
+            box = QRectF(left, 932 - bh, bw, bh)
+            box_top = box.top()
             path = QPainterPath()
             path.addRoundedRect(box, 6, 6)
             p.fillPath(path, QColor(0, 20, 30, 150))
             p.setPen(QPen(self.rgba(1), 2))
             p.drawPath(path)
+            p.save()
+            p.setClipPath(path)
             p.setPen(QColor(235, 250, 255))
-            p.drawText(box, Qt.AlignCenter, "\n".join(drawn))
+            block_h = len(drawn) * SAY_LINE_H
+            top = box.center().y() - block_h / 2
+            for i, ln in enumerate(drawn):
+                p.drawText(QRectF(left + SAY_PAD, top + i * SAY_LINE_H, full_w - SAY_PAD, SAY_LINE_H),
+                           Qt.AlignLeft | Qt.AlignVCenter | Qt.TextDontClip, ln)
+            p.restore()
         if self.transcript:
             p.setPen(self.rgba(.9))
             p.setFont(self.font(MONO, 16, QFont.Medium, 2))
             tfm = QFontMetricsF(self.font(MONO, 16, QFont.Medium, 2))
             shown_t = tfm.elidedText(self.transcript, Qt.ElideRight, W - 240)
-            p.drawText(QRectF(0, 840, W, 24), Qt.AlignHCenter | Qt.AlignVCenter, shown_t)
+            ty = min(840.0, box_top - 36)
+            p.drawText(QRectF(0, ty, W, 24), Qt.AlignHCenter | Qt.AlignVCenter, shown_t)
         p.setOpacity(1)

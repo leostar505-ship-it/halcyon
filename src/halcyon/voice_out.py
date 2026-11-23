@@ -36,6 +36,65 @@ def split_chunks(text, first_max=45, max_chars=160):
     return chunks
 
 
+def split_units(text, max_chars=110):
+    sentences = [x.strip() for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x.strip()]
+    units = []
+    for sent in sentences:
+        while len(sent) > max_chars:
+            cut = None
+            for m in re.finditer(r"[,;:]\s+", sent):
+                if m.end() >= 25 and len(sent) - m.end() >= 15 and m.end() <= max_chars:
+                    cut = m.end()
+            if cut is None:
+                break
+            units.append(sent[:cut].strip())
+            sent = sent[cut:].strip()
+        units.append(sent)
+    return units
+
+
+def take_units(units, budget):
+    out = [units.pop(0)]
+    while units and len(out[-1]) + 1 + len(units[0]) <= budget:
+        out[-1] += " " + units.pop(0)
+    return out[0]
+
+
+def trim_silence(data, threshold=400, keep_ms=35, fade_ms=6):
+    with wave.open(io.BytesIO(data)) as w:
+        rate = w.getframerate()
+        ch = w.getnchannels()
+        raw = w.readframes(w.getnframes())
+    pcm = np.frombuffer(raw, dtype="<i2")
+    mono = pcm if ch == 1 else pcm.reshape(-1, ch).max(axis=1)
+    loud = np.nonzero(np.abs(mono.astype(np.int32)) > threshold)[0]
+    if loud.size == 0:
+        return data
+    keep = int(rate * keep_ms / 1000)
+    a = max(0, int(loud[0]) - keep)
+    b = min(len(mono), int(loud[-1]) + keep)
+    seg = mono[a:b].astype(np.float64) if ch == 1 else pcm.reshape(-1, ch)[a:b].astype(np.float64)
+    fade = min(int(rate * fade_ms / 1000), len(seg) // 2)
+    if fade > 0:
+        ramp = np.linspace(0.0, 1.0, fade)
+        if ch > 1:
+            ramp = ramp[:, None]
+        seg[:fade] *= ramp
+        seg[-fade:] *= ramp[::-1]
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(np.clip(seg, -32768, 32767).astype("<i2").tobytes())
+    return out.getvalue()
+
+
+def audio_seconds(data):
+    with wave.open(io.BytesIO(data)) as w:
+        return w.getnframes() / float(w.getframerate())
+
+
 FLAGS = 0x08000000 if sys.platform == "win32" else 0
 
 SAPI_SCRIPT = (
@@ -110,6 +169,8 @@ class Voice:
         self.engine_name = "none"
         self.start_hook = None
         self.last_error = ""
+        self.gen_cps = None
+        self.speak_cps = 14.0
 
     def set_muted(self, value):
         self.muted = bool(value)
@@ -205,34 +266,90 @@ class Voice:
                                      data=json.dumps({"text": text}).encode(),
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=120) as resp:
-            return ensure_pcm16(resp.read())
+            data = ensure_pcm16(resp.read())
+        try:
+            return trim_silence(data)
+        except Exception:
+            return data
+
+    def _budget(self, prev_audio):
+        if self.gen_cps is None:
+            return 80
+        if self.gen_cps < self.speak_cps * 1.15:
+            return 100
+        return int(max(40, min(220, prev_audio * self.gen_cps * .8)))
+
+    def _preroll(self, remaining_chars, first_audio):
+        if self.gen_cps is None or remaining_chars <= 0 or self.gen_cps >= self.speak_cps * 1.15:
+            return 0.0
+        need = remaining_chars / self.gen_cps - remaining_chars / self.speak_cps - first_audio
+        return max(0.0, min(6.0, need))
 
     def _speak_chatterbox(self, text, on_amp):
         self.engine_name = "chatterbox"
-        parts = split_chunks(text)
-        slots = [{"done": threading.Event(), "audio": None, "err": None} for _ in parts]
+        first = split_chunks(text)[0]
+        units = split_units(text[len(first):].strip()) if len(text) > len(first) else []
+        slots = queue.Queue()
+        total_rest = sum(len(u) for u in units)
+        info = {"first_audio": 0.0}
+
+        def fetch_into(slot, part):
+            t0 = time.monotonic()
+            try:
+                slot["audio"] = self._fetch_chatterbox(part)
+            except Exception as exc:
+                slot["err"] = exc
+                slot["done"].set()
+                return 0.0
+            took = max(.05, time.monotonic() - t0)
+            secs = audio_seconds(slot["audio"])
+            rate = len(part) / took
+            self.gen_cps = rate if self.gen_cps is None else .5 * self.gen_cps + .5 * rate
+            if secs > .3:
+                self.speak_cps = .7 * self.speak_cps + .3 * (len(part) / secs)
+            self.note("chunk %d chars: generated in %.1fs, %.1fs of audio" % (len(part), took, secs))
+            slot["done"].set()
+            return secs
 
         def fetcher():
-            for part, slot in zip(parts, slots):
-                if self.stop_flag.is_set():
-                    slot["done"].set()
-                    continue
-                try:
-                    slot["audio"] = self._fetch_chatterbox(part)
-                except Exception as exc:
-                    slot["err"] = exc
+            slot = {"done": threading.Event(), "audio": None, "err": None}
+            slots.put(slot)
+            prev = 0.0
+            if self.stop_flag.is_set():
                 slot["done"].set()
+            else:
+                prev = fetch_into(slot, first)
+                info["first_audio"] = prev
+            info["ready"] = True
+            while units and not self.stop_flag.is_set() and slot["err"] is None:
+                part = take_units(units, self._budget(prev))
+                slot = {"done": threading.Event(), "audio": None, "err": None}
+                slots.put(slot)
+                prev = fetch_into(slot, part)
+            slots.put(None)
 
         threading.Thread(target=fetcher, daemon=True).start()
-        for i, slot in enumerate(slots):
+        index = 0
+        while True:
+            slot = slots.get()
+            if slot is None:
+                return
             slot["done"].wait()
             if self.stop_flag.is_set():
                 return
             if slot["err"] is not None:
-                if i == 0:
+                if index == 0:
                     raise slot["err"]
                 return
+            if index == 0:
+                delay = self._preroll(total_rest, info["first_audio"])
+                if delay > 0:
+                    self.note("slow generation, pre-rolling %.1fs to avoid gaps" % delay)
+                    self.stop_flag.wait(delay)
+                    if self.stop_flag.is_set():
+                        return
             self._play_chatterbox(slot["audio"], on_amp)
+            index += 1
 
     def _play_chatterbox(self, audio, on_amp):
         if self.stop_flag.is_set():

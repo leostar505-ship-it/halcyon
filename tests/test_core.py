@@ -449,3 +449,49 @@ def test_split_chunks_starts_with_first_sentence():
     assert out[0] == "One short sentence here."
     assert " ".join(out) == "One short sentence here. Another follows it. And a third one."
     assert split_chunks("no punctuation") == ["no punctuation"]
+
+
+def _wav(samples, rate=24000):
+    import io
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(samples.astype("<i2").tobytes())
+    return buf.getvalue()
+
+
+def test_trim_silence_removes_padding_but_keeps_speech():
+    import numpy as np
+    from halcyon.voice_out import audio_seconds, trim_silence
+    tone = (np.sin(np.linspace(0, 400, 12000)) * 8000)
+    padded = np.concatenate([np.zeros(12000), tone, np.zeros(12000)])
+    out = trim_silence(_wav(padded))
+    assert audio_seconds(out) < audio_seconds(_wav(padded)) - 0.7
+    assert audio_seconds(out) > 0.5
+
+
+def test_trim_silence_leaves_pure_silence_alone():
+    import numpy as np
+    from halcyon.voice_out import trim_silence
+    data = _wav(np.zeros(4000))
+    assert trim_silence(data) == data
+
+
+def test_take_units_groups_within_budget():
+    from halcyon.voice_out import take_units
+    units = ["aaaa", "bbbb", "cccc"]
+    assert take_units(units, 9) == "aaaa bbbb"
+    assert units == ["cccc"]
+    units = ["x" * 50, "y"]
+    assert take_units(units, 10) == "x" * 50
+
+
+def test_split_units_breaks_long_sentences_at_clauses():
+    from halcyon.voice_out import split_units
+    text = "Sir, the most recent change stops me falling back to the Windows voice while the speech engine is running, and it also logs the reason."
+    out = split_units(text)
+    assert len(out) == 2
+    assert all(len(u) <= 110 for u in out)
