@@ -432,6 +432,22 @@ def test_self_question_detection():
     assert not brain.is_self_question("update my windows drivers")
 
 
+def test_game_update_questions_are_not_self_questions():
+    from halcyon import brain
+    assert not brain.is_self_question("what games had the most recent update")
+    assert not brain.is_self_question("which games got the latest update")
+    assert not brain.is_self_question("what apps were updated recently")
+    assert not brain.is_self_question("what is new in the latest fortnite patch notes")
+    assert not brain.is_self_question("what changed in the latest steam update")
+    assert brain.is_self_question("what did halcyon change in the latest update")
+    assert brain.is_self_question("what were your latest patch notes")
+
+
+def test_router_prompt_has_no_leading_thought_example():
+    from halcyon import brain
+    assert "GitHub" not in brain.ROUTER_PROMPT
+
+
 def test_wrap_lines_clips_long_text():
     from PySide6.QtGui import QFont, QFontMetricsF, QGuiApplication
     from halcyon import hud

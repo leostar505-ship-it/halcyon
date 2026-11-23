@@ -625,8 +625,8 @@ def github_updates():
 
 
 @action("about_self", "Answer questions about Halcyon itself, its settings, which processor (CPU or GPU) the voice runs on, "
-        "lights, version, or what is new, updated, changed or fixed in the latest update, patch notes or changelog "
-        "(this reads GitHub itself, never use the full assistant for that). args: question")
+        "lights, version, or what is new, updated, changed or fixed in Halcyon's own latest update, patch notes or changelog "
+        "(this reads Halcyon's own GitHub repository only; never use it for questions about games, apps, or anything else). args: question")
 def about_self(ctx, args):
     from . import brain
     question = str(args.get("question", "")).strip()

@@ -157,7 +157,7 @@ Choose one route:
 2. The full assistant with a shell and files, for anything an action cannot do (copying files to or from the home server, running commands, installing things, researching, fixing problems, creating new actions): {{"route":"claude","task":"<the task, restated clearly>","screenshot":false}}
 3. A short answer you can give right now from general knowledge: {{"route":"chat","say":"<one or two short sentences, at most 25 words in total, statement style>"}}
 
-Optionally add "thought": a short phrase of at most 8 words on why you chose that route, for example "Updates live on GitHub".
+Optionally add "thought": a short phrase of at most 8 words that honestly states why you chose that route for this specific request.
 Set screenshot to true only when the task depends on what is currently on the user's screen.
 Never choose any route that spends money or buys anything.
 The text comes from speech recognition and is often misheard. If a phrase sounds like an app or game name (for example \"for at night\" means Fortnite), use the real name in the action args.
@@ -185,11 +185,23 @@ SELF_RE = re.compile(
     r"(?:cpu|gpu) or (?:cpu|gpu)|what version)\b", re.I)
 
 
+SELF_REF_RE = re.compile(r"\b(?:you|your|yourself|halcyon|voice|chatterbox|whisper|speech)\b", re.I)
+OTHER_SUBJECT_RE = re.compile(
+    r"\b(?:games?|gaming|apps?|applications?|programs?|software|steam|epic|fortnite|roblox|minecraft|"
+    r"war thunder|trailmakers|teardown|windows|drivers?|firmware|browser|chrome|discord|server|jellyfin|"
+    r"phone|android|ios)\b", re.I)
+SELF_ONLY_RE = re.compile(r"\b(?:halcyon|yourself|your own)\b", re.I)
+
+
 def is_self_question(text):
     low = (text or "").lower()
     if not SELF_RE.search(low):
         return False
-    return bool(re.search(r"\b(?:you|your|halcyon|yourself|voice|chatterbox|whisper|update|patch|version|speech)\b", low))
+    if SELF_ONLY_RE.search(low):
+        return True
+    if OTHER_SUBJECT_RE.search(low):
+        return False
+    return bool(re.search(r"\b(?:you|your|voice|chatterbox|whisper|speech|update|patch|version)\b", low))
 
 
 def route(text, actions_desc, model, history="", note=""):
