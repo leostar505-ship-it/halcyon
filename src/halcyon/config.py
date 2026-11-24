@@ -12,6 +12,7 @@ DEFAULTS = {
     "use_gpu": True,
     "hotkey": "ctrl+alt+h",
     "voice_muted": False,
+    "voice_volume": 0.6,
     "chatterbox_url": "http://127.0.0.1:8123",
     "chatterbox_device": "cuda",
     "chatterbox_force_cpu": False,

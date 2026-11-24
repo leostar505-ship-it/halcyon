@@ -511,3 +511,24 @@ def test_split_units_breaks_long_sentences_at_clauses():
     out = split_units(text)
     assert len(out) == 2
     assert all(len(u) <= 110 for u in out)
+
+
+def test_voice_volume_scaling():
+    import io
+    import wave
+    import numpy as np
+    from halcyon import voice_out
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(22050)
+        w.writeframes(np.array([0, 10000, -10000, 32767], dtype="<i2").tobytes())
+    quiet = voice_out.scale_wav(buf.getvalue(), 0.5)
+    with wave.open(io.BytesIO(quiet)) as w:
+        got = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    assert list(got) == [0, 5000, -5000, 16383]
+    assert voice_out.scale_wav(buf.getvalue(), 1.0) == buf.getvalue()
+    assert voice_out.clamp_volume(5) == 1.0
+    assert voice_out.clamp_volume(-1) == 0.0
+    assert voice_out.clamp_volume("bad") == 0.6

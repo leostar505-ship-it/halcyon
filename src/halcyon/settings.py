@@ -1,7 +1,8 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QSpinBox, QTabWidget, QVBoxLayout,
+                               QWidget)
 
 from . import autostart
 
@@ -46,8 +47,17 @@ class SettingsDialog(QDialog):
         self.gpu = QCheckBox("Use the GPU for speech recognition")
         self.gpu.setChecked(bool(config.get("use_gpu")))
         self.chatterbox = QLineEdit(config.get("chatterbox_url"))
+        self.voice_vol = QSlider(Qt.Horizontal)
+        self.voice_vol.setRange(0, 100)
+        self.voice_vol.setValue(int(round(float(config.get("voice_volume")) * 100)))
+        self.voice_vol_label = QLabel("%d %%" % self.voice_vol.value())
+        self.voice_vol.valueChanged.connect(lambda x: self.voice_vol_label.setText("%d %%" % x))
+        vol_row = QHBoxLayout()
+        vol_row.addWidget(self.voice_vol, 1)
+        vol_row.addWidget(self.voice_vol_label)
         v.addRow("Wake word model", self.wake_model)
         v.addRow("Command model", self.command_model)
+        v.addRow("Voice volume", vol_row)
         v.addRow(self.gpu)
         v.addRow("Chatterbox server", self.chatterbox)
         tabs.addTab(voice, "Voice")
@@ -216,6 +226,7 @@ class SettingsDialog(QDialog):
             "wake_words": words or c.get("wake_words"),
             "hud_monitor": self.monitor.value(),
             "voice_muted": self.muted.isChecked(),
+            "voice_volume": self.voice_vol.value() / 100.0,
             "wake_model": self.wake_model.currentText().strip(),
             "command_model": self.command_model.currentText().strip(),
             "use_gpu": self.gpu.isChecked(),

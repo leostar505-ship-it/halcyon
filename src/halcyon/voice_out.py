@@ -107,6 +107,7 @@ SAPI_SCRIPT = (
     "$s.Rate=0;"
     "[Console]::Out.WriteLine('R');[Console]::Out.Flush();"
     "while(($l=[Console]::In.ReadLine()) -ne $null){"
+    "if($l -match '^V(\\d+)\\|(.*)$'){$s.Volume=[int]$matches[1];$l=$matches[2]};"
     "if($l.Trim() -eq ''){[Console]::Out.WriteLine('D');[Console]::Out.Flush();continue};"
     "[Console]::Out.WriteLine('S');[Console]::Out.Flush();"
     "$s.Speak($l);"
@@ -154,6 +155,31 @@ def ensure_pcm16(data):
     return out.getvalue()
 
 
+def clamp_volume(value, default=0.6):
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = default
+    return max(0.0, min(1.0, v))
+
+
+def scale_wav(audio, volume):
+    if volume >= 0.999:
+        return audio
+    with wave.open(io.BytesIO(audio)) as w:
+        params = w.getparams()
+        frames = w.readframes(w.getnframes())
+    pcm = np.frombuffer(frames, dtype="<i2").astype(np.float64) * volume
+    pcm = np.clip(pcm, -32768, 32767).astype("<i2")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(params.nchannels)
+        w.setsampwidth(params.sampwidth)
+        w.setframerate(params.framerate)
+        w.writeframes(pcm.tobytes())
+    return out.getvalue()
+
+
 def statement(text):
     return " ".join(text.replace("?", ".").split())
 
@@ -171,6 +197,9 @@ class Voice:
         self.last_error = ""
         self.gen_cps = None
         self.speak_cps = 14.0
+
+    def volume(self):
+        return clamp_volume(self.config.get("voice_volume"))
 
     def set_muted(self, value):
         self.muted = bool(value)
@@ -378,7 +407,7 @@ class Voice:
         try:
             if sys.platform == "win32":
                 import winsound
-                winsound.PlaySound(audio, winsound.SND_MEMORY)
+                winsound.PlaySound(scale_wav(audio, self.volume()), winsound.SND_MEMORY)
             else:
                 time.sleep(len(pcm) / rate)
         finally:
@@ -416,7 +445,7 @@ class Voice:
         proc = self._sapi_start()
         lines = self.sapi_lines
         try:
-            proc.stdin.write((" ".join(text.split()) + "\n").encode("utf-8"))
+            proc.stdin.write(("V%d|" % int(round(self.volume() * 100)) + " ".join(text.split()) + "\n").encode("utf-8"))
             proc.stdin.flush()
         except OSError:
             self.proc = None
