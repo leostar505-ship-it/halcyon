@@ -51,7 +51,7 @@ class SettingsDialog(QDialog):
         self.voice_vol.setRange(0, 100)
         self.voice_vol.setValue(int(round(float(config.get("voice_volume")) * 100)))
         self.voice_vol_label = QLabel("%d %%" % self.voice_vol.value())
-        self.voice_vol.valueChanged.connect(lambda x: self.voice_vol_label.setText("%d %%" % x))
+        self.voice_vol.valueChanged.connect(self.show_voice_volume)
         vol_row = QHBoxLayout()
         vol_row.addWidget(self.voice_vol, 1)
         vol_row.addWidget(self.voice_vol_label)
@@ -217,6 +217,9 @@ class SettingsDialog(QDialog):
         box.addItems(items)
         box.setCurrentText(str(current))
         return box
+
+    def show_voice_volume(self, value):
+        self.voice_vol_label.setText("%d %%" % value)
 
     def save(self):
         c = self.config
