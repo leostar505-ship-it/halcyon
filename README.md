@@ -1,6 +1,6 @@
 # Halcyon
 
-H.A.L.C.Y.O.N: Hey Assistant, Listen: Claude You Operate Now.
+H.A.L.C.Y.O.N: Hears, Answers, Launches, Controls, Yields, Operates, Notifies.
 
 A voice assistant for Windows that uses Claude Code as its brain. Say "hal-see-on" or press Ctrl+Alt+H. Runs locally: speech recognition, voice, HUD.
 

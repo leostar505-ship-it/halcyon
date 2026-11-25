@@ -532,3 +532,11 @@ def test_voice_volume_scaling():
     assert voice_out.clamp_volume(5) == 1.0
     assert voice_out.clamp_volume(-1) == 0.0
     assert voice_out.clamp_volume("bad") == 0.6
+
+
+def test_short_version():
+    from halcyon import short_version
+    assert short_version("1.0.0") == "1"
+    assert short_version("1.2.0") == "1.2"
+    assert short_version("1.2.3") == "1.2.3"
+    assert short_version("10.0.0") == "10"

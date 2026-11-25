@@ -273,9 +273,9 @@ class Controller:
 
     def self_facts(self):
         import urllib.request
-        from . import __version__
+        from . import SHORT_VERSION
         c = self.config
-        out = ["Halcyon version %s." % __version__, "Voice engine in use: %s." % getattr(self.voice, "engine_name", "unknown"),
+        out = ["Halcyon version %s." % SHORT_VERSION, "Voice engine in use: %s." % getattr(self.voice, "engine_name", "unknown"),
                "Muted: %s." % bool(c.get("voice_muted")), "Router model: %s." % c.get("router_model"),
                "Chatterbox is set to prefer the %s." % ("CPU" if c.get("chatterbox_force_cpu") else "GPU, falling back to CPU if unavailable"),
                "Lights enabled: %s, brightness %s." % (c.get("rgb_enabled"), c.get("rgb_brightness")),

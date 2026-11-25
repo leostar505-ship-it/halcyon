@@ -12,9 +12,9 @@ import urllib.request
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
 from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                               QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QPushButton, QSlider, QStackedWidget, QVBoxLayout, QWidget)
 
-from . import EXPANSION, NAME, __version__
+from . import EXPANSION, NAME, SHORT_VERSION
 from .brain import BrainError, ask_model, find_claude
 from .vendor import whispercpp as W
 from .voice_in import match_wake
@@ -238,7 +238,7 @@ class Panel(QWidget):
         brand = QLabel("  %s" % NAME.upper())
         brand.setStyleSheet("font-size:20px;font-weight:700;letter-spacing:4px;color:#4cc3ff;padding:22px 0 4px 8px;")
         sl.addWidget(brand)
-        ver = QLabel("   v%s" % __version__)
+        ver = QLabel("   v%s" % SHORT_VERSION)
         ver.setObjectName("sub")
         ver.setStyleSheet("padding:0 0 18px 8px;")
         sl.addWidget(ver)
@@ -412,6 +412,26 @@ class Panel(QWidget):
         self.v_tts = row_label("")
         for x in (self.v_whisper, self.v_model, self.v_tts):
             l2.addWidget(x)
+        l2.addWidget(row_label("Voice volume", "h"))
+        vol_row = QHBoxLayout()
+        self.vol_slider = QSlider(Qt.Horizontal)
+        self.vol_slider.setRange(0, 100)
+        self.vol_box = QSpinBox()
+        self.vol_box.setRange(0, 100)
+        self.vol_box.setSuffix(" %")
+        start_vol = int(round(max(0.0, min(1.0, float(self.config.get("voice_volume")))) * 100))
+        self.vol_slider.setValue(start_vol)
+        self.vol_box.setValue(start_vol)
+        self.vol_save = QTimer(self)
+        self.vol_save.setSingleShot(True)
+        self.vol_save.setInterval(300)
+        self.vol_save.timeout.connect(self.config.save)
+        self.vol_slider.valueChanged.connect(self.vol_box.setValue)
+        self.vol_box.valueChanged.connect(self.vol_slider.setValue)
+        self.vol_box.valueChanged.connect(self.set_voice_volume)
+        vol_row.addWidget(self.vol_slider, 1)
+        vol_row.addWidget(self.vol_box)
+        l2.addLayout(vol_row)
         row = QHBoxLayout()
         b1 = QPushButton("Check engines")
         b1.clicked.connect(self.refresh_voice)
@@ -939,6 +959,10 @@ class Panel(QWidget):
             self.chatterbox.stop()
             self.voice.chatterbox_ok = False
             self.cb_log("Chatterbox stopped.")
+
+    def set_voice_volume(self, value):
+        self.config.data["voice_volume"] = value / 100.0
+        self.vol_save.start()
 
     def speak_test(self):
         def job():

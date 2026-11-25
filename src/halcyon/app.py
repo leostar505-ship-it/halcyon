@@ -8,7 +8,7 @@ from PySide6.QtCore import QLockFile, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import EXPANSION, NAME, __version__
+from . import EXPANSION, NAME, SHORT_VERSION
 from .actions import Registry
 from .config import Config, actions_dir, config_dir
 from .controller import Controller
@@ -87,7 +87,7 @@ def main(argv=None):
     controller.status_cb = bridge.status.emit
 
     tray = QSystemTrayIcon(icon, app)
-    tray.setToolTip("%s %s" % (NAME, __version__))
+    tray.setToolTip("%s v%s" % (NAME, SHORT_VERSION))
     menu = QMenu()
 
     def act(label, fn, checkable=False, checked=False):
@@ -185,7 +185,7 @@ def main(argv=None):
         box = QMessageBox()
         box.setWindowTitle("About %s" % NAME)
         box.setWindowIcon(icon)
-        box.setText("%s %s\n\n%s" % (NAME, __version__, EXPANSION))
+        box.setText("%s v%s\n\n%s" % (NAME, SHORT_VERSION, EXPANSION))
         dialogs.append(box)
         box.show()
 
